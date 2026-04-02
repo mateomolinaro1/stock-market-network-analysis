@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "beartype>=0.22.9",
     "better-aws>=0.7.0",
+    "matplotlib>=3.10.8",
     "pandas>=3.0.1",
 ]
 

@@ -23,6 +23,9 @@ class DataManager:
         self.rolling_raw_target_variable: pd.DataFrame | None = None
         self.target_variable: pd.DataFrame | None = None
 
+        # Data for analysis
+        self.aligned_df: pd.DataFrame | None = None
+
         for filename in self.config.filenames_to_load:
             if not isinstance(filename, str):
                 logger.error(f"Invalid filename in config: {filename}. Expected a string.")
@@ -197,5 +200,46 @@ class DataManager:
         else:
             logger.error(f"Invalid target variable specified in config: {self.config.target_variable}")
             raise ValueError(f"Invalid target variable specified in config: {self.config.target_variable}")
+
+    def _build_aligned_df(self) -> None:
+        """
+        Build self.aligned_df, a dataframe indexed by self.dates and containing
+        the target variable, rolling raw target variable, market returns, and
+        asset returns aligned on the same dates.
+
+        For each date in self.dates, the function keeps the most recent available
+        observation in each dataframe using a backward merge_asof.
+        """
+        base_index_name = "date"
+
+        # Base dataframe from self.dates
+        df = pd.DataFrame(index=pd.Index(self.dates, name=base_index_name)).reset_index()
+        df = df.sort_values(base_index_name)
+
+        def _merge_one(left_df: pd.DataFrame, right_df: pd.DataFrame) -> pd.DataFrame:
+            right = right_df.copy()
+
+            # Make sure the right index has a usable name
+            right.index = pd.Index(right.index, name=base_index_name)
+
+            # Reset index and sort for merge_asof
+            right = right.reset_index().sort_values(base_index_name)
+
+            merged = pd.merge_asof(
+                left=left_df,
+                right=right,
+                on=base_index_name,
+                direction="backward"
+            )
+            return merged
+
+        df = _merge_one(df, self.target_variable)
+        df = _merge_one(df, self.rolling_raw_target_variable)
+        df = _merge_one(df, self.mkt_returns)
+        df = _merge_one(df, self.asset_returns)
+
+        self.aligned_df = df.set_index(base_index_name)
+
+        return
 
 

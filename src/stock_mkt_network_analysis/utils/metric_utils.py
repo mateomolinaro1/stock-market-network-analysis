@@ -56,3 +56,13 @@ class Metrics:
         dummy_feature = (feature < rolling_quantile).astype(int)
         dummy_feature.rename(columns={dummy_feature.columns[0]: output_col_name+f'_{dummy_feature.columns[0]}'}, inplace=True)
         return dummy_feature
+
+    @staticmethod
+    def compute_cumulative_return(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute the cumulative return from a df returns.
+        :return: a dataframe with dates as index and a single column 'cumulative_return' as values.
+        """
+        cumulative_return = (1 + df).cumprod() - 1
+        cumulative_return.rename(columns={cumulative_return.columns[0]: 'cumulative_return'+f'_{cumulative_return.columns[0]}'}, inplace=True)
+        return cumulative_return
