@@ -5,8 +5,16 @@
     "OUTPUT_FORMAT": "json",
     "FILENAMES_TO_LOAD": [
       "data/wrds_funda_gross_query.parquet",
-      "data/wrds_gross_query.parquet"
+      "data/wrds_gross_query.parquet",
+      "data/russell_returns.parquet"
     ],
-    "DATES_FILENAME": "data/wrds_gross_query.parquet"
-  }}
+    "DATES_FILENAME": "data/wrds_gross_query.parquet",
+    "MKT_RETURNS_FILENAME": "data/russell_returns.parquet"
+  }},
+  "DATA": {
+    "DATA_FREQ": "d",
+    "TARGET_VARIABLE": "dummy_maximum_drawdown",
+    "TARGET_VARIABLE_ROLLING_WINDOW": 252,
+    "QUANTILE_FOR_DUMMY": 0.1
+  }
 }

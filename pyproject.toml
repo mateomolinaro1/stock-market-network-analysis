@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "beartype>=0.22.9",
     "better-aws>=0.7.0",
     "pandas>=3.0.1",
 ]

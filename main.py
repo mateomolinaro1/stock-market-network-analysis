@@ -7,3 +7,4 @@ config = Config()
 
 data_manager = DataManager(config=config)
 data_manager.load_data()
+# Build plots target variable (rolling cum perf mkt, rolling max dd, target variable)
