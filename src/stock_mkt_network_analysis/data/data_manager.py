@@ -6,7 +6,6 @@ from stock_mkt_network_analysis.utils.config import Config
 import logging
 from pathlib import Path
 from better_aws import AWS
-from beartype import beartype
 from stock_mkt_network_analysis.utils.metric_utils import Metrics
 
 logger = logging.getLogger(__name__)
@@ -20,6 +19,7 @@ class DataManager:
         self.universe: dict[pd.Timestamp, list[int]] | None = None
         self.asset_returns: pd.DataFrame | None = None
         self.mkt_returns: pd.DataFrame | None = None
+        self.mkt_cumulative_returns: pd.DataFrame | None = None
         self.rolling_raw_target_variable: pd.DataFrame | None = None
         self.target_variable: pd.DataFrame | None = None
 
@@ -52,6 +52,7 @@ class DataManager:
         self._build_asset_returns()
         self._build_mkt_returns()
         self._build_target_variable()
+        self._build_aligned_df()
 
     # ---------- Internal helpers ---------- #
     def _init_s3(self) -> None:
@@ -146,6 +147,8 @@ class DataManager:
         mkt_returns = self._get_mkt_attribute()
         mkt_returns = mkt_returns[[mkt_returns.columns[0]]].copy()
         self.mkt_returns = mkt_returns.pct_change(fill_method=None).dropna()
+        cum_mkt_returns = Metrics.compute_cumulative_return(df=self.mkt_returns)
+        self.mkt_cumulative_returns = cum_mkt_returns
 
     def _build_target_variable(self) -> None:
         """
@@ -236,6 +239,7 @@ class DataManager:
         df = _merge_one(df, self.target_variable)
         df = _merge_one(df, self.rolling_raw_target_variable)
         df = _merge_one(df, self.mkt_returns)
+        df = _merge_one(df, self.mkt_cumulative_returns)
         df = _merge_one(df, self.asset_returns)
 
         self.aligned_df = df.set_index(base_index_name)

@@ -57,7 +57,7 @@ class Analytics:
             saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time.png"
         )
 
-    def _get_raw_target_variable(self)->None:
+    def _get_plot_raw_target_variable(self)->None:
         """
         Plot the raw target variable over time.
         :return:
@@ -66,11 +66,11 @@ class Analytics:
             df=self.data.aligned_df,
             x_index=True,
             x_col=None,
-            y_col=self.data.target_variable.columns.to_list(),
+            y_col=self.data.mkt_cumulative_returns.columns.to_list(),
             y2_col=self.data.rolling_raw_target_variable.columns.to_list(),
-            title="Target variable over time",
+            title="Cumulative market return and raw target variable over time",
             xlabel="Date",
-            ylabel="Target variable",
+            ylabel="Cumulative market return",
             y2_label="Rolling raw target variable",
-            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time.png"
+            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "cum_return_over_time.png"
         )
