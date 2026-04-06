@@ -1,6 +1,6 @@
-from stock_mkt_network_analysis.utils.config import Config
-from stock_mkt_network_analysis.data.data_manager import DataManager
-from stock_mkt_network_analysis.analytics.analytics import Analytics
+from src.stock_mkt_network_analysis.utils.config import Config
+from src.stock_mkt_network_analysis.data.data_manager import DataManager
+from src.stock_mkt_network_analysis.analytics.analytics import Analytics
 from dotenv import load_dotenv
 import logging
 import sys
