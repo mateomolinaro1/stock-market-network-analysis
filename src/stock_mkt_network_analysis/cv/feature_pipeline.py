@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Sequence
+from typing import Sequence
 
 import pandas as pd
+import logging
 
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class RollingNetworkFeaturePipeline:
@@ -31,7 +33,10 @@ class RollingNetworkFeaturePipeline:
         rows = []
         dates = []
 
+        cnt = 0
         for date, corr in corr_cache.items():
+            cnt += 1
+            logger.info(f"Processing date {date.date()} ({cnt}/{len(list(corr_cache.keys()))}) with correlation matrix of shape {corr.shape}")
             if corr.empty:
                 continue
 

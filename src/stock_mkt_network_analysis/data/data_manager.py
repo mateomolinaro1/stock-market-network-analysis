@@ -22,6 +22,7 @@ class DataManager:
         self.mkt_cumulative_returns: pd.DataFrame | None = None
         self.rolling_raw_target_variable: pd.DataFrame | None = None
         self.target_variable: pd.DataFrame | None = None
+        self.target_variable_to_predict: pd.DataFrame | None = None
 
         # Data for analysis
         self.aligned_df: pd.DataFrame | None = None
@@ -251,7 +252,18 @@ class DataManager:
         first_idx = self.aligned_df[self.config.target_variable].first_valid_index()
         cropped = self.aligned_df.loc[first_idx:,:]
         self.aligned_df = cropped
+        self._shift_target_variable()
 
         return
+
+    def _shift_target_variable(self) -> None:
+        """
+        Shift the target variable by the forecast horizon specified in config to create the target variable to predict.
+        """
+        if self.target_variable is None:
+            raise ValueError("Target variable must be built before shifting.")
+
+        self.target_variable_to_predict = self.aligned_df[[self.config.target_variable]].copy()
+        self.target_variable_to_predict = self.target_variable_to_predict.shift(-self.config.forecasting_horizon)
 
 

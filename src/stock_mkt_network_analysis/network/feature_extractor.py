@@ -24,14 +24,14 @@ class BasicNetworkFeatureExtractor:
 
         density = nx.density(graph) if n_nodes > 1 else np.nan
 
-        unweighted_degrees = np.array([deg for _, deg in graph.degree()], dtype=float)
+        unweighted_degrees = np.array([deg for _, deg in graph.degree()], dtype=float) # store it into a dict with dates as keys so that we will plot degree distribution overtime
         avg_degree = float(np.mean(unweighted_degrees)) if len(unweighted_degrees) else 0.0
         std_degree = float(np.std(unweighted_degrees)) if len(unweighted_degrees) else 0.0
 
         weighted_degrees = np.array(
             [deg for _, deg in graph.degree(weight="weight")],
             dtype=float,
-        )
+        ) # save for plot dist
         avg_weighted_degree = float(np.mean(weighted_degrees)) if len(weighted_degrees) else 0.0
         std_weighted_degree = float(np.std(weighted_degrees)) if len(weighted_degrees) else 0.0
 

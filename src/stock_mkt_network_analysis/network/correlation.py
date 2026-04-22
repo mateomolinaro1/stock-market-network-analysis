@@ -48,6 +48,7 @@ class RollingCorrelationEstimator:
             return pd.DataFrame()
 
         window = returns.iloc[loc - self.lookback:loc]
+        assert window.index.max() < date # Lookback window must be strictly before target date
         return self.compute_correlation(window)
 
     def compute_rolling(self, returns: pd.DataFrame) -> Dict[pd.Timestamp, pd.DataFrame]:
