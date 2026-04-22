@@ -7,7 +7,9 @@ dependencies = [
     "beartype>=0.22.9",
     "better-aws>=0.7.0",
     "matplotlib>=3.10.8",
+    "networkx>=3.6.1",
     "pandas>=3.0.1",
+    "scikit-learn>=1.8.0",
 ]
 
 [tool.setuptools]

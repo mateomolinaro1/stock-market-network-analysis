@@ -4,7 +4,9 @@ This module provides utility functions for calculating various metrics related t
 
 from typing import Callable
 import pandas as pd
-from beartype import beartype
+from stock_mkt_network_analysis.utils.config import Config
+
+config = Config()
 
 class Metrics:
     def __init__(self):
@@ -24,7 +26,8 @@ class Metrics:
         }
         annualization_factor = mapping_freq_to_annualization_factor.get(data_freq)
         realized_volatility = df.rolling(window=rolling_window).std() * (annualization_factor ** 0.5)
-        realized_volatility.rename(columns={realized_volatility.columns[0]: 'annualized_realized_volatility'+f'_{realized_volatility.columns[0]}'}, inplace=True)
+        realized_volatility.rename(columns={realized_volatility.columns[0]: "realized_volatility"}, inplace=True)
+        realized_volatility = realized_volatility.iloc[rolling_window+1:,:]
         return realized_volatility
 
     @staticmethod
@@ -39,7 +42,9 @@ class Metrics:
         cumulative_returns = (1 + df).rolling(window=rolling_window).apply(lambda x: x.prod())
         running_max = cumulative_returns.cummax()
         drawdown = cumulative_returns / running_max - 1
-        drawdown.rename(columns={drawdown.columns[0]: 'maximum_drawdown'+f'_{drawdown.columns[0]}'}, inplace=True)
+        drawdown.rename(columns={drawdown.columns[0]: 'maximum_drawdown'}, inplace=True)
+        # delete the first rolling_window rows as they are nan
+        drawdown = drawdown.iloc[rolling_window+1:,:]
         return drawdown
 
     @staticmethod
@@ -47,14 +52,13 @@ class Metrics:
             df: pd.DataFrame,
             rolling_window: int,
             feature_func: Callable[[pd.DataFrame, int], pd.DataFrame],
-            quantile: float = 0.5,
-            output_col_name: str = 'dummy_feature'
+            quantile: float = 0.5
     ) -> pd.DataFrame:
         feature = feature_func(df, rolling_window)
 
         rolling_quantile = feature.rolling(window=rolling_window).quantile(quantile)
         dummy_feature = (feature < rolling_quantile).astype(int)
-        dummy_feature.rename(columns={dummy_feature.columns[0]: output_col_name+f'_{dummy_feature.columns[0]}'}, inplace=True)
+        dummy_feature.rename(columns={dummy_feature.columns[0]: config.target_variable}, inplace=True)
         return dummy_feature
 
     @staticmethod
@@ -64,5 +68,5 @@ class Metrics:
         :return: a dataframe with dates as index and a single column 'cumulative_return' as values.
         """
         cumulative_return = (1 + df).cumprod() - 1
-        cumulative_return.rename(columns={cumulative_return.columns[0]: 'cumulative_return'+f'_{cumulative_return.columns[0]}'}, inplace=True)
+        cumulative_return.rename(columns={cumulative_return.columns[0]: 'cumulative_return'}, inplace=True)
         return cumulative_return

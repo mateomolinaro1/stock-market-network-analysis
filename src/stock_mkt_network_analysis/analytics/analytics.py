@@ -4,7 +4,7 @@ A module for performing various analytics on stock market data.
 import pandas as pd
 import matplotlib.pyplot as plt
 from stock_mkt_network_analysis.data.data_manager import DataManager
-from stock_mkt_network_analysis.utils.metric_utils import Metrics
+from stock_mkt_network_analysis.utils.market_metric_utils import Metrics
 from stock_mkt_network_analysis.analytics.visualization import Vizu
 from stock_mkt_network_analysis.utils.config import Config
 import logging
@@ -28,6 +28,7 @@ class Analytics:
         """
         self._get_data_for_analytics()
         self._get_plot_target_variable()
+        self._get_plot_target_variable_with_cum_ret()
         self._get_plot_raw_target_variable()
 
 
@@ -54,7 +55,27 @@ class Analytics:
             xlabel="Date",
             ylabel="Target variable",
             y2_label="Rolling raw target variable",
-            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time.png"
+            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time.png",
+            date_freq=self.config.data_freq
+        )
+
+    def _get_plot_target_variable_with_cum_ret(self)->None:
+        """
+        Uses the plot function in vizu
+        :return:
+        """
+        Vizu.plot_time_series(
+            df=self.data.aligned_df,
+            x_index=True,
+            x_col=None,
+            y_col=self.data.target_variable.columns.to_list(),
+            y2_col=self.mkt_cumulative_returns.columns.to_list(),
+            title="Target variable over time and cumulative return of bench",
+            xlabel="Date",
+            ylabel="Target variable",
+            y2_label="Cum ret bench",
+            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time_with_cum_ret.png",
+            date_freq=self.config.data_freq
         )
 
     def _get_plot_raw_target_variable(self)->None:
@@ -72,5 +93,6 @@ class Analytics:
             xlabel="Date",
             ylabel="Cumulative market return",
             y2_label="Rolling raw target variable",
-            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "cum_return_over_time.png"
+            saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "cum_return_over_time.png",
+            date_freq=self.config.data_freq
         )
