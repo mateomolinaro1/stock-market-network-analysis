@@ -36,6 +36,15 @@ class Config:
         self.target_variable_rolling_window: int|None = None
         self.quantile_for_dummy: float|None = None
 
+        # Forecasting
+        self.forecasting_horizon: int|None = None
+        self.lookback_target_and_corr: int|None = None
+        self.inner_train_size: int|None = None
+        self.inner_val_size: int|None = None
+        self.inner_step_size: int|None = None
+        self.threshold_grid: List[float]|None = None
+        self.logit_param_grid: List[Dict]|None = None
+
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
 
@@ -71,3 +80,19 @@ class Config:
             if config.get("DATA").get("QUANTILE_FOR_DUMMY") is not None:
                 self.quantile_for_dummy = config.get("DATA").get("QUANTILE_FOR_DUMMY")
 
+            # Forecasting
+            forecasting = config.get("FORECASTING", {})
+            if forecasting.get("FORECASTING_HORIZON") is not None:
+                self.forecasting_horizon = forecasting.get("FORECASTING_HORIZON")
+            if forecasting.get("LOOKBACK_TARGET_AND_CORR") is not None:
+                self.lookback_target_and_corr = forecasting.get("LOOKBACK_TARGET_AND_CORR")
+            if forecasting.get("INNER_TRAIN_SIZE") is not None:
+                self.inner_train_size = forecasting.get("INNER_TRAIN_SIZE")
+            if forecasting.get("INNER_VAL_SIZE") is not None:
+                self.inner_val_size = forecasting.get("INNER_VAL_SIZE")
+            if forecasting.get("INNER_STEP_SIZE") is not None:
+                self.inner_step_size = forecasting.get("INNER_STEP_SIZE")
+            if forecasting.get("THRESHOLD_GRID") is not None:
+                self.threshold_grid = forecasting.get("THRESHOLD_GRID")
+            if forecasting.get("LOGIT_PARAM_GRID") is not None:
+                self.logit_param_grid = forecasting.get("LOGIT_PARAM_GRID")
