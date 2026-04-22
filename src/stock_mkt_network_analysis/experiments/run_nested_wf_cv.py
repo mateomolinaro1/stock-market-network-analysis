@@ -24,7 +24,7 @@ def main():
     returns = data_manager.aligned_df[asset_cols]
     dates = returns.index
 
-    target = data_manager.target_variable_to_predict.squeeze()
+    target = data_manager.target_variable_to_predict.squeeze().dropna()
 
     correlation_estimator = RollingCorrelationEstimator(lookback=config.lookback_target_and_corr)
     graph_builder = ThresholdGraphBuilder(use_absolute_threshold=True, keep_sign=True)

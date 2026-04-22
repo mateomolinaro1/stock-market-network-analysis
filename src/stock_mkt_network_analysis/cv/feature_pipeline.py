@@ -33,10 +33,10 @@ class RollingNetworkFeaturePipeline:
         rows = []
         dates = []
 
-        cnt = 0
+        # cnt = 0
         for date, corr in corr_cache.items():
-            cnt += 1
-            logger.info(f"Processing date {date.date()} ({cnt}/{len(list(corr_cache.keys()))}) with correlation matrix of shape {corr.shape}")
+            # cnt += 1
+            # logger.info(f"Processing date {date.date()} ({cnt}/{len(list(corr_cache.keys()))}) with correlation matrix of shape {corr.shape}")
             if corr.empty:
                 continue
 
