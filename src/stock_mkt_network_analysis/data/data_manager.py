@@ -6,7 +6,7 @@ from stock_mkt_network_analysis.utils.config import Config
 import logging
 from pathlib import Path
 from better_aws import AWS
-from stock_mkt_network_analysis.utils.metric_utils import Metrics
+from stock_mkt_network_analysis.utils.market_metric_utils import Metrics
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,8 @@ class DataManager:
         self.aligned_df: pd.DataFrame | None = None
 
         for filename in self.config.filenames_to_load:
+            if filename == "data/wrds_funda_gross_query.parquet":
+                continue
             if not isinstance(filename, str):
                 logger.error(f"Invalid filename in config: {filename}. Expected a string.")
                 raise ValueError(f"Invalid filename in config: {filename}. Expected a string.")
@@ -163,11 +165,9 @@ class DataManager:
                 rolling_window=self.config.target_variable_rolling_window,
                 data_freq=self.config.data_freq
             )
-            self.target_variable = Metrics.compute_realized_volatility(
-                df=self.mkt_returns,
-                rolling_window=self.config.target_variable_rolling_window,
-                data_freq=self.config.data_freq
-            )
+            tmp = self.rolling_raw_target_variable.copy()
+            self.target_variable = tmp
+
         elif self.config.target_variable == 'dummy_realized_volatility':
             self.rolling_raw_target_variable = Metrics.compute_realized_volatility(
                 df=self.mkt_returns,
@@ -180,15 +180,15 @@ class DataManager:
                 feature_func=Metrics.compute_realized_volatility,
                 quantile=self.config.quantile_for_dummy
             )
+
         elif self.config.target_variable == 'maximum_drawdown':
             self.rolling_raw_target_variable = Metrics.compute_maximum_drawdown(
                 df=self.mkt_returns,
                 rolling_window=self.config.target_variable_rolling_window
             )
-            self.target_variable = Metrics.compute_maximum_drawdown(
-                df=self.mkt_returns,
-                rolling_window=self.config.target_variable_rolling_window
-            )
+            tmp = self.rolling_raw_target_variable.copy()
+            self.target_variable = tmp
+
         elif self.config.target_variable == 'dummy_maximum_drawdown':
             self.rolling_raw_target_variable = Metrics.compute_maximum_drawdown(
                 df=self.mkt_returns,
@@ -228,6 +228,10 @@ class DataManager:
             # Reset index and sort for merge_asof
             right = right.reset_index().sort_values(base_index_name)
 
+            # Convert both date columns to datetime to avoid dtype mismatch
+            left_df[base_index_name] = pd.to_datetime(left_df[base_index_name]).astype('datetime64[ns]')
+            right[base_index_name] = pd.to_datetime(right[base_index_name]).astype('datetime64[ns]')
+
             merged = pd.merge_asof(
                 left=left_df,
                 right=right,
@@ -243,6 +247,10 @@ class DataManager:
         df = _merge_one(df, self.asset_returns)
 
         self.aligned_df = df.set_index(base_index_name)
+        # Get the first index when the target is available
+        first_idx = self.aligned_df[self.config.target_variable].first_valid_index()
+        cropped = self.aligned_df.loc[first_idx:,:]
+        self.aligned_df = cropped
 
         return
 
