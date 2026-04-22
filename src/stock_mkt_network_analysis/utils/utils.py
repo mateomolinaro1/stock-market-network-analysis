@@ -29,5 +29,4 @@ def align_x_y(
     X_aligned = X_aligned.loc[valid]
     y_aligned = y_aligned.loc[valid]
 
-    # Remove the .X_train - should just return y_aligned
     return X_aligned, y_aligned

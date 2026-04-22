@@ -55,7 +55,7 @@ def main():
     # IMPORTANT:
     # target must already be forward-defined, i.e.
     # target[t] = future event starting at t
-    target = data_manager.target_variable_to_predict.squeeze()
+    target = data_manager.target_variable_to_predict.squeeze().dropna()
 
     # -----------------------------
     # Feature pipeline
