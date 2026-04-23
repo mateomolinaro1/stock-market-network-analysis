@@ -10,7 +10,7 @@ Supported schemes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Literal
+from typing import Any, Callable, Dict, List, Optional, Sequence, Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -34,13 +34,18 @@ class WalkForwardResult:
 
 @dataclass
 class SimpleRollingWalkForwardCV:
+    """
+    For each test date, each model independently selects its best (threshold, params)
+    via the validation window, refits on train+val, and predicts on the test date.
+    All models are tracked — predictions has one row per (date, model).
+    """
     feature_pipeline: RollingNetworkFeaturePipeline
-    model: Any
+    model_grid: Sequence[Tuple[Any, Sequence[Dict[str, Any]]]]  # [(estimator, param_grid), ...]
     threshold_grid: Sequence[float]
-    hyperparameter_grid: Sequence[Dict[str, Any]]
     scoring_func: Callable
     outer_train_size: int
     val_size: int
+    target_horizon: int = 0
     min_required_history: Optional[int] = None
 
     def run(
@@ -57,7 +62,7 @@ class SimpleRollingWalkForwardCV:
         lookback = self.feature_pipeline.correlation_estimator.lookback
 
         if self.min_required_history is None:
-            self.min_required_history = lookback + self.outer_train_size + self.val_size
+            self.min_required_history = lookback + self.outer_train_size + self.val_size + self.target_horizon
 
         prediction_records: List[Dict[str, Any]] = []
         selection_records: List[Dict[str, Any]] = []
@@ -76,9 +81,10 @@ class SimpleRollingWalkForwardCV:
             if test_loc < self.min_required_history:
                 continue
 
-            val_end = test_loc
+            # Buffer val_end back by target_horizon so the last val label
+            # only uses returns up to t_test - 1 (no leakage into the test period)
+            val_end = test_loc - self.target_horizon
             val_start = val_end - self.val_size
-
             train_end = val_start
             train_start = train_end - self.outer_train_size
 
@@ -89,109 +95,125 @@ class SimpleRollingWalkForwardCV:
             val_dates = all_dates[val_start:val_end]
             test_dates = pd.Index([t_test])
 
-            best_score = -np.inf
-            best_threshold = None
-            best_theta = None
+            for base_model, param_grid in self.model_grid:
+                model_name = type(base_model).__name__
 
-            for c in self.threshold_grid:
-                logger.info(f"Evaluating threshold {c} for test date {t_test}")
-                for theta in self.hyperparameter_grid:
-                    logger.info(f"Evaluating hyperparameters {theta} for threshold {c} and test date {t_test}")
-                    train_returns = returns.loc[train_dates]
-                    train_target = target.loc[train_dates]
+                best_score = -np.inf
+                best_threshold = None
+                best_theta = None
 
-                    X_train = self.feature_pipeline.make_features(
-                        returns=train_returns,
-                        threshold=c,
-                    )
-                    X_train, y_train = align_x_y(X_train, train_target)
+                for c in self.threshold_grid:
+                    for theta in param_grid:
+                        X_train = self.feature_pipeline.make_features(
+                            returns=returns.loc[train_dates],
+                            threshold=c,
+                        )
+                        X_train, y_train = align_x_y(X_train, target.loc[train_dates])
 
-                    X_val = self.feature_pipeline.make_features_for_dates(
-                        returns=returns.loc[returns.index <= val_dates[-1]],
-                        target_dates=val_dates,
-                        threshold=c,
-                    )
-                    y_val = target.loc[val_dates]
-                    X_val, y_val = align_x_y(X_val, y_val)
+                        X_val = self.feature_pipeline.make_features_for_dates(
+                            returns=returns.loc[returns.index <= val_dates[-1]],
+                            target_dates=val_dates,
+                            threshold=c,
+                        )
+                        y_val = target.loc[val_dates]
+                        X_val, y_val = align_x_y(X_val, y_val)
 
-                    if len(X_train) == 0 or len(X_val) == 0:
-                        continue
+                        if len(X_train) == 0 or len(X_val) == 0:
+                            continue
 
-                    if len(np.unique(y_train)) < 2:
-                        continue
+                        if len(np.unique(y_train)) < 2:
+                            continue
 
-                    candidate_model = clone(self.model).set_params(**theta)
-                    candidate_model.fit(X_train, y_train)
+                        fitted = clone(base_model).set_params(**theta)
+                        fitted.fit(X_train, y_train)
 
-                    yhat_val = predict_positive_class_proba(candidate_model, X_val)
-                    score = self.scoring_func(y_val.values, yhat_val)
+                        yhat_val = predict_positive_class_proba(fitted, X_val)
+                        score = self.scoring_func(y_val.values, yhat_val)
 
-                    if not np.isnan(score) and score > best_score:
-                        best_score = score
-                        best_threshold = c
-                        best_theta = theta
+                        if not np.isnan(score) and score > best_score:
+                            best_score = score
+                            best_threshold = c
+                            best_theta = theta
 
-            if best_threshold is None or best_theta is None:
-                logger.warning(f"No valid combo found for test date {t_test} — skipping.")
-                continue
+                if best_threshold is None or best_theta is None:
+                    logger.warning(f"No valid combo found for {model_name} at {t_test} — skipping.")
+                    continue
 
-            refit_dates = all_dates[train_start:val_end]
+                refit_dates = all_dates[train_start:val_end]
 
-            X_refit = self.feature_pipeline.make_features(
-                returns=returns.loc[refit_dates],
-                threshold=best_threshold,
-            )
-            y_refit = target.loc[refit_dates]
-            X_refit, y_refit = align_x_y(X_refit, y_refit)
+                X_refit = self.feature_pipeline.make_features(
+                    returns=returns.loc[refit_dates],
+                    threshold=best_threshold,
+                )
+                y_refit = target.loc[refit_dates]
+                X_refit, y_refit = align_x_y(X_refit, y_refit)
 
-            X_test = self.feature_pipeline.make_features_for_dates(
-                returns=returns.loc[returns.index <= t_test],
-                target_dates=test_dates,
-                threshold=best_threshold,
-            )
-            y_test = target.loc[test_dates]
-            X_test, y_test = align_x_y(X_test, y_test)
+                X_test = self.feature_pipeline.make_features_for_dates(
+                    returns=returns.loc[returns.index <= t_test],
+                    target_dates=test_dates,
+                    threshold=best_threshold,
+                )
+                y_test = target.loc[test_dates]
+                X_test, y_test = align_x_y(X_test, y_test)
 
-            if len(X_refit) == 0 or len(X_test) == 0:
-                continue
+                if len(X_refit) == 0 or len(X_test) == 0:
+                    continue
 
-            if len(np.unique(y_refit)) < 2:
-                continue
+                if len(np.unique(y_refit)) < 2:
+                    continue
 
-            final_model = clone(self.model).set_params(**best_theta)
-            final_model.fit(X_refit, y_refit)
+                final_model = clone(base_model).set_params(**best_theta)
+                final_model.fit(X_refit, y_refit)
 
-            yhat_test = predict_positive_class_proba(final_model, X_test)
+                yhat_test = predict_positive_class_proba(final_model, X_test)
 
-            prediction_records.append(
-                {
-                    "date": t_test, # at date t_test w
-                    "y_true": int(y_test.iloc[0]),
-                    "y_pred": float(yhat_test[0]),
-                    "best_threshold": float(best_threshold),
-                    "validation_score": float(best_score),
-                }
-            )
+                prediction_records.append(
+                    {
+                        "date": t_test,
+                        "model": model_name,
+                        "y_true": int(y_test.iloc[0]),
+                        "y_pred": float(yhat_test[0]),
+                        "y_pred_binary": int(yhat_test[0] >= 0.5),
+                        "best_threshold": float(best_threshold),
+                        "validation_score": float(best_score),
+                    }
+                )
 
-            selection_records.append(
-                {
-                    "date": t_test, # at date t_test we store prediction of target variable for t+h
-                    "scheme": "simple",
-                    "train_start": train_dates[0],
-                    "train_end": train_dates[-1],
-                    "val_start": val_dates[0],
-                    "val_end": val_dates[-1],
-                    "best_threshold": float(best_threshold),
-                    "best_theta": best_theta,
-                    "validation_score": float(best_score),
-                    "n_refit_obs": int(len(X_refit)),
-                }
-            )
+                selection_records.append(
+                    {
+                        "date": t_test,
+                        "model": model_name,
+                        "scheme": "simple",
+                        "train_start": train_dates[0],
+                        "train_end": train_dates[-1],
+                        "val_start": val_dates[0],
+                        "val_end": val_dates[-1],
+                        "best_threshold": float(best_threshold),
+                        "best_theta": best_theta,
+                        "validation_score": float(best_score),
+                        "n_refit_obs": int(len(X_refit)),
+                    }
+                )
 
             self.feature_pipeline.evict_before(train_dates[0])
 
-        predictions = pd.DataFrame(prediction_records).set_index("date").sort_index()
-        selection_history = pd.DataFrame(selection_records).set_index("date").sort_index()
+        model_names = [type(base_model).__name__ for base_model, _ in self.model_grid]
+        full_index = pd.MultiIndex.from_product(
+            [outer_test_dates, model_names], names=["date", "model"]
+        )
+
+        predictions = (
+            pd.DataFrame(prediction_records)
+            .set_index(["date", "model"])
+            .reindex(full_index)
+            .sort_index()
+        )
+        selection_history = (
+            pd.DataFrame(selection_records)
+            .set_index(["date", "model"])
+            .reindex(full_index)
+            .sort_index()
+        )
 
         return WalkForwardResult(
             predictions=predictions,
@@ -209,6 +231,7 @@ class NestedWalkForwardCV:
     outer_train_size: int
     inner_train_size: int
     inner_val_size: int
+    target_horizon: int = 0
     inner_step_size: Optional[int] = 1
     min_required_history: Optional[int] = None
 
@@ -228,7 +251,7 @@ class NestedWalkForwardCV:
         if self.min_required_history is None:
             self.min_required_history = max(
                 lookback + self.outer_train_size,
-                lookback + self.inner_train_size + self.inner_val_size,
+                lookback + self.inner_train_size + self.inner_val_size + self.target_horizon,
             )
 
         prediction_records: List[Dict[str, Any]] = []
@@ -256,8 +279,10 @@ class NestedWalkForwardCV:
 
             outer_train_dates = available_outer_train_dates[-self.outer_train_size:]
 
+            # Trim last target_horizon dates so inner val labels don't leak into t_test
+            inner_fold_dates = outer_train_dates[:-self.target_horizon] if self.target_horizon > 0 else outer_train_dates
             inner_folds = build_rolling_time_series_folds(
-                dates=outer_train_dates,
+                dates=inner_fold_dates,
                 train_size=self.inner_train_size,
                 val_size=self.inner_val_size,
                 step_size=self.inner_step_size,
@@ -351,6 +376,7 @@ class NestedWalkForwardCV:
                     "date": t_test,
                     "y_true": int(y_outer_test.iloc[0]),
                     "y_pred": float(yhat_test[0]),
+                    "y_pred_binary": int(yhat_test[0] >= 0.5),
                     "best_threshold": float(best_threshold),
                     "inner_cv_score": float(best_score),
                 }
@@ -392,41 +418,9 @@ def get_cv_runner(
     inner_train_size: Optional[int] = None,
     inner_val_size: Optional[int] = None,
     inner_step_size: Optional[int] = 1,
+    target_horizon: int = 0,
     min_required_history: Optional[int] = None,
 ):
-    """
-    Factory function returning the chosen CV runner.
-
-    Parameters
-    ----------
-    cv_scheme : {"simple", "nested"}
-        CV scheme to use.
-    feature_pipeline : RollingNetworkFeaturePipeline
-        Pipeline to generate features from returns.
-    model : Any
-        Scikit-learn compatible model with fit/predict methods.
-    threshold_grid : Sequence[float]
-        Grid of thresholds for graph construction to search over.
-    hyperparameter_grid : Sequence[Dict[str, Any]]
-        Grid of model hyperparameters to search over.
-    scoring_func : Callable
-        Function to evaluate predictions against true labels for model selection.
-    outer_train_size : int
-        Number of observations in the outer training set.
-    val_size : Optional[int]
-        Number of observations in the validation set (required for "simple" scheme).
-    inner_train_size : Optional[int]
-        Number of observations in the inner training set (required for "nested" scheme).
-    inner_val_size : Optional[int]
-        Number of observations in the inner validation set (required for "nested" scheme).
-    inner_step_size : Optional[int]
-        Step size for rolling inner CV folds (only for "nested" scheme, default=1).
-    min_required_history : Optional[int]
-        Minimum number of historical observations required to run CV for a test date.
-         If None, it will be set to the maximum lookback required by the feature pipeline and the training/validation sizes.
-         This is used to skip test dates that don't have enough history for the CV procedure.
-    """
-
     if cv_scheme == "simple":
         if val_size is None:
             raise ValueError("For cv_scheme='simple', val_size must be provided.")
@@ -439,6 +433,7 @@ def get_cv_runner(
             scoring_func=scoring_func,
             outer_train_size=outer_train_size,
             val_size=val_size,
+            target_horizon=target_horizon,
             min_required_history=min_required_history,
         )
 
@@ -457,6 +452,7 @@ def get_cv_runner(
             outer_train_size=outer_train_size,
             inner_train_size=inner_train_size,
             inner_val_size=inner_val_size,
+            target_horizon=target_horizon,
             inner_step_size=inner_step_size,
             min_required_history=min_required_history,
         )

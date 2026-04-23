@@ -2,7 +2,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import json
-from typing import List, Dict, Type, Tuple
+from typing import Any, List, Dict, Tuple
+
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +47,25 @@ class Config:
         self.inner_step_size: int|None = None
         self.threshold_grid: List[float]|None = None
         self.logit_param_grid: List[Dict]|None = None
+        self.model_grid: List[Tuple[Any, List[Dict]]]|None = None
 
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
+
+    _MODEL_REGISTRY = {
+        "LogisticRegression": LogisticRegression,
+        "RandomForestClassifier": RandomForestClassifier,
+        "GradientBoostingClassifier": GradientBoostingClassifier,
+    }
+
+    @staticmethod
+    def _parse_model_grid(raw: list) -> List[Tuple[Any, List[Dict]]]:
+        result = []
+        for entry in raw:
+            cls = Config._MODEL_REGISTRY[entry["model"]]
+            estimator = cls(**entry.get("model_kwargs", {}))
+            result.append((estimator, entry["param_grid"]))
+        return result
 
     def _load_run_pipeline_config(self)->None:
         """
@@ -96,3 +115,5 @@ class Config:
                 self.threshold_grid = forecasting.get("THRESHOLD_GRID")
             if forecasting.get("LOGIT_PARAM_GRID") is not None:
                 self.logit_param_grid = forecasting.get("LOGIT_PARAM_GRID")
+            if forecasting.get("MODEL_GRID") is not None:
+                self.model_grid = self._parse_model_grid(forecasting.get("MODEL_GRID"))

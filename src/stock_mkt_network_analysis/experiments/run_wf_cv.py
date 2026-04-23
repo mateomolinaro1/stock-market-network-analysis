@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from dotenv import load_dotenv
 
@@ -27,12 +26,27 @@ logging.basicConfig(
 # -----------------------------
 # Simple walk-forward parameters
 # -----------------------------
-OUTER_TRAIN_SIZE = config.inner_train_size   # e.g. 1 year of daily data
-VAL_SIZE = config.inner_val_size            # e.g. 1 quarter of daily data
-LOOKBACK = config.lookback_corr              # lookback for rolling correlation estimation (e.g. 1 year)
-THRESHOLD_GRID = config.threshold_grid  # example thresholds for graph construction
-LOGIT_PARAM_GRID = config.logit_param_grid
-
+OUTER_TRAIN_SIZE = config.inner_train_size
+VAL_SIZE = config.inner_val_size
+LOOKBACK = config.lookback_corr
+THRESHOLD_GRID = config.threshold_grid
+MODEL_GRID = config.model_grid
+# # Each entry: (base_estimator, param_grid) — each model independently tunes its own params
+# MODEL_GRID = [
+#     (
+#         LogisticRegression(solver="liblinear", class_weight="balanced", max_iter=1000),
+#         [{"C": 0.01}, {"C": 0.1}, {"C": 1.0}, {"C": 10.0}],
+#     ),
+#     (
+#         RandomForestClassifier(class_weight="balanced", random_state=42),
+#         [{"n_estimators": 100, "max_depth": 3}, {"n_estimators": 100, "max_depth": 5}],
+#     ),
+#     (
+#         GradientBoostingClassifier(random_state=42),
+#         [{"n_estimators": 100, "max_depth": 2, "learning_rate": 0.05},
+#          {"n_estimators": 100, "max_depth": 3, "learning_rate": 0.1}],
+#     ),
+# ]
 
 def main():
     # -----------------------------
@@ -68,34 +82,17 @@ def main():
     feature_pipeline.precompute_cache(returns)
     logger.info("Feature pipeline cache precomputed successfully")
 
-    # -----------------------------
-    # Model
-    # -----------------------------
-    model = LogisticRegression(
-        solver="liblinear",
-        class_weight="balanced",
-        max_iter=1000,
-    )
-
-    # -----------------------------
-    # OOS start
-    # Need enough data for:
-    # lookback + outer_train_size + val_size
-    # -----------------------------
     start_oos = LOOKBACK + OUTER_TRAIN_SIZE + VAL_SIZE + 1
     outer_test_dates = dates[start_oos:]
 
-    # -----------------------------
-    # Simple rolling walk-forward
-    # -----------------------------
     runner = SimpleRollingWalkForwardCV(
         feature_pipeline=feature_pipeline,
-        model=model,
+        model_grid=MODEL_GRID,
         threshold_grid=THRESHOLD_GRID,
-        hyperparameter_grid=LOGIT_PARAM_GRID,
         scoring_func=safe_roc_auc,
         outer_train_size=OUTER_TRAIN_SIZE,
         val_size=VAL_SIZE,
+        target_horizon=config.target_variable_rolling_window,
     )
 
     result = runner.run(
@@ -107,17 +104,18 @@ def main():
     print("Predictions head:")
     print(result.predictions.head())
     print()
+    print(result.predictions["validation_score"].describe())
 
     print("Selection history head:")
     print(result.selection_history.head())
     print()
 
-    if len(result.predictions) > 0 and result.predictions["y_true"].nunique() > 1:
-        auc = roc_auc_score(
-            result.predictions["y_true"],
-            result.predictions["y_pred"],
-        )
-        print(f"OOS ROC AUC: {auc:.4f}")
+    # if len(result.predictions) > 0:
+    #     print("\nOOS ROC AUC by model:")
+    #     for model_name, grp in result.predictions.groupby("model"):
+    #         if grp["y_true"].nunique() > 1:
+    #             auc = roc_auc_score(grp["y_true"], grp["y_pred"])
+    #             print(f"  {model_name}: {auc:.4f}  (n={len(grp)})")
 
 
 if __name__ == "__main__":
