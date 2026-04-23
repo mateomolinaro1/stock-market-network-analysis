@@ -3,6 +3,7 @@ This module provides utility functions for calculating various metrics related t
 """
 
 from typing import Callable
+import numpy as np
 import pandas as pd
 from stock_mkt_network_analysis.utils.config import Config
 
@@ -46,6 +47,30 @@ class Metrics:
         # delete the first rolling_window rows as they are nan
         drawdown = drawdown.iloc[rolling_window+1:,:]
         return drawdown
+
+    @staticmethod
+    def compute_forward_max_drawdown(df: pd.DataFrame, rolling_window: int) -> pd.DataFrame:
+        """
+        At each date t, compute the max drawdown over the next `rolling_window` returns [t+1, t+rolling_window].
+        The last `rolling_window` rows will be NaN (no future data available).
+        Called by pandas .apply() on each rolling slice.
+        `window` is a numpy array of `rolling_window` consecutive daily returns,
+        e.g. [0.01, -0.02, 0.005] for rolling_window=3.
+        """
+        returns = df.iloc[:, 0]
+
+        def _path_max_drawdown(window: np.ndarray) -> float:
+            cum = np.cumprod(1 + window)
+            running_max = np.maximum.accumulate(cum)
+            return float((cum / running_max - 1).min())
+
+        mdd = (
+            returns
+            .rolling(window=rolling_window)
+            .apply(_path_max_drawdown, raw=True)
+            .shift(-rolling_window)
+        )
+        return pd.DataFrame(mdd.values, index=df.index, columns=["forward_max_drawdown"])
 
     @staticmethod
     def compute_dummy_from_feature(

@@ -201,6 +201,18 @@ class DataManager:
                 feature_func=Metrics.compute_maximum_drawdown,
                 quantile=self.config.quantile_for_dummy
             )
+        elif self.config.target_variable == 'dummy_forward_max_drawdown':
+            self.rolling_raw_target_variable = Metrics.compute_forward_max_drawdown(
+                df=self.mkt_returns,
+                rolling_window=self.config.target_variable_rolling_window,
+            )
+            self.target_variable = Metrics.compute_dummy_from_feature(
+                df=self.mkt_returns,
+                rolling_window=self.config.target_variable_rolling_window,
+                feature_func=Metrics.compute_forward_max_drawdown,
+                quantile=self.config.quantile_for_dummy
+            )
+
         else:
             logger.error(f"Invalid target variable specified in config: {self.config.target_variable}")
             raise ValueError(f"Invalid target variable specified in config: {self.config.target_variable}")

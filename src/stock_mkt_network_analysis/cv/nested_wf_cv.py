@@ -3,6 +3,7 @@ Nested walk-forward cross-validation for time series classification with a rolli
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -14,6 +15,8 @@ from stock_mkt_network_analysis.cv.folds import build_rolling_time_series_folds
 from stock_mkt_network_analysis.cv.feature_pipeline import RollingNetworkFeaturePipeline
 from stock_mkt_network_analysis.models.utils import predict_positive_class_proba
 from stock_mkt_network_analysis.utils.utils import align_x_y
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -123,6 +126,9 @@ class NestedWalkForwardCV:
                         if len(X_train) == 0 or len(X_val) == 0:
                             continue
 
+                        if len(np.unique(y_train)) < 2:
+                            continue
+
                         model = clone(self.model).set_params(**theta)
                         model.fit(X_train, y_train)
 
@@ -140,6 +146,7 @@ class NestedWalkForwardCV:
                         best_theta = theta
 
             if best_threshold is None or best_theta is None:
+                logger.warning(f"No valid combo found for test date {t_test} — skipping.")
                 continue
 
             X_outer_train = self.feature_pipeline.make_features(
@@ -158,6 +165,9 @@ class NestedWalkForwardCV:
             X_outer_test, y_outer_test = align_x_y(X_outer_test, y_outer_test)
 
             if len(X_outer_train) == 0 or len(X_outer_test) == 0:
+                continue
+
+            if len(np.unique(y_outer_train)) < 2:
                 continue
 
             final_model = clone(self.model).set_params(**best_theta)
