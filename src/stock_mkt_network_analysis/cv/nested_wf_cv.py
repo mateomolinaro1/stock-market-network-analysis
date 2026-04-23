@@ -180,6 +180,7 @@ class NestedWalkForwardCV:
                     "date": t_test,
                     "y_true": int(y_outer_test.iloc[0]),
                     "y_pred": float(yhat_test[0]),
+                    "y_pred_binary": int(yhat_test[0] >= 0.5),
                     "best_threshold": float(best_threshold),
                     "inner_cv_score": float(best_score),
                 }

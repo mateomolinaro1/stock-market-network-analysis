@@ -21,11 +21,15 @@
     "FORECASTING_HORIZON": 0,
     "LOOKBACK_CORR": 252,
     "INNER_TRAIN_SIZE": 252,
-    "INNER_VAL_SIZE": 21,
+    "INNER_VAL_SIZE": 42,
     "INNER_STEP_SIZE": 1,
     "THRESHOLD_GRID": [0.75],
-    "LOGIT_PARAM_GRID": [
-      {"C": 1.0}
+    "MODEL_GRID": [
+      {
+        "model": "LogisticRegression",
+        "model_kwargs": {"solver": "liblinear", "class_weight": "balanced", "max_iter": 1000},
+        "param_grid": [{"C": 1.0}]
+      }
     ]
   }
 }
