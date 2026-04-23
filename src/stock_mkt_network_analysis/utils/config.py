@@ -38,7 +38,7 @@ class Config:
 
         # Forecasting
         self.forecasting_horizon: int|None = None
-        self.lookback_target_and_corr: int|None = None
+        self.lookback_corr: int|None = None
         self.inner_train_size: int|None = None
         self.inner_val_size: int|None = None
         self.inner_step_size: int|None = None
@@ -84,8 +84,8 @@ class Config:
             forecasting = config.get("FORECASTING", {})
             if forecasting.get("FORECASTING_HORIZON") is not None:
                 self.forecasting_horizon = forecasting.get("FORECASTING_HORIZON")
-            if forecasting.get("LOOKBACK_TARGET_AND_CORR") is not None:
-                self.lookback_target_and_corr = forecasting.get("LOOKBACK_TARGET_AND_CORR")
+            if forecasting.get("LOOKBACK_CORR") is not None:
+                self.lookback_corr = forecasting.get("LOOKBACK_CORR")
             if forecasting.get("INNER_TRAIN_SIZE") is not None:
                 self.inner_train_size = forecasting.get("INNER_TRAIN_SIZE")
             if forecasting.get("INNER_VAL_SIZE") is not None:

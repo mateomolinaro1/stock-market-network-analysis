@@ -181,6 +181,8 @@ class SimpleRollingWalkForwardCV:
                 }
             )
 
+            self.feature_pipeline.evict_before(train_dates[0])
+
         predictions = pd.DataFrame(prediction_records).set_index("date").sort_index()
         selection_history = pd.DataFrame(selection_records).set_index("date").sort_index()
 
@@ -352,6 +354,8 @@ class NestedWalkForwardCV:
                     "n_outer_train_obs": int(len(X_outer_train)),
                 }
             )
+
+            self.feature_pipeline.evict_before(outer_train_dates[0])
 
         predictions = pd.DataFrame(prediction_records).set_index("date").sort_index()
         selection_history = pd.DataFrame(selection_records).set_index("date").sort_index()

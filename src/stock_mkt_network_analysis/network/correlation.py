@@ -29,7 +29,7 @@ class RollingCorrelationEstimator:
 
         corr = clean_window.corr()
         corr = corr.dropna(axis=0, how="all").dropna(axis=1, how="all")
-        return corr
+        return corr.astype("float32")
 
     def compute_for_date(self, returns: pd.DataFrame, date: pd.Timestamp) -> pd.DataFrame:
         """
