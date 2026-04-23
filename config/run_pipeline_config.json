@@ -15,7 +15,7 @@
     "DATA_FREQ": "d",
     "TARGET_VARIABLE": "dummy_forward_max_drawdown",
     "TARGET_VARIABLE_ROLLING_WINDOW": 21,
-    "QUANTILE_FOR_DUMMY": 0.25
+    "QUANTILE_FOR_DUMMY": 0.10
   },
   "FORECASTING": {
     "FORECASTING_HORIZON": 0,
