@@ -1,8 +1,6 @@
 """
 A module for performing various analytics on stock market data.
 """
-import pandas as pd
-import matplotlib.pyplot as plt
 from stock_mkt_network_analysis.data.data_manager import DataManager
 from stock_mkt_network_analysis.utils.market_metric_utils import Metrics
 from stock_mkt_network_analysis.analytics.visualization import Vizu
@@ -39,6 +37,13 @@ class Analytics:
         self.mkt_cumulative_returns = Metrics.compute_cumulative_return(
             df=self.data.aligned_df[self.data.mkt_returns.columns.to_list()]
         )
+        # Build a combined df that includes the forward-looking label used by the model
+        self.analytics_df = self.aligned_df.join(
+            self.data.target_variable_to_predict.rename(
+                columns={self.config.target_variable: "target_to_predict"}
+            ),
+            how="left",
+        ).join(self.mkt_cumulative_returns, how="left")
 
     def _get_plot_target_variable(self)->None:
         """
@@ -46,15 +51,15 @@ class Analytics:
         :return:
         """
         Vizu.plot_time_series(
-            df=self.data.aligned_df,
+            df=self.analytics_df,
             x_index=True,
             x_col=None,
-            y_col=self.data.target_variable.columns.to_list(),
+            y_col="target_to_predict",
             y2_col=self.data.rolling_raw_target_variable.columns.to_list(),
-            title="Target variable over time",
+            title="Forward-looking target variable over time",
             xlabel="Date",
-            ylabel="Target variable",
-            y2_label="Rolling raw target variable",
+            ylabel="Target to predict (0/1)",
+            y2_label="Forward max drawdown (raw)",
             saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time.png",
             date_freq=self.config.data_freq
         )
@@ -65,14 +70,14 @@ class Analytics:
         :return:
         """
         Vizu.plot_time_series(
-            df=self.data.aligned_df,
+            df=self.analytics_df,
             x_index=True,
             x_col=None,
-            y_col=self.data.target_variable.columns.to_list(),
-            y2_col=self.mkt_cumulative_returns.columns.to_list(),
-            title="Target variable over time and cumulative return of bench",
+            y_col="target_to_predict",
+            y2_col=self.data.mkt_cumulative_returns.columns.to_list(),
+            title="Forward-looking target variable and cumulative return of bench",
             xlabel="Date",
-            ylabel="Target variable",
+            ylabel="Target to predict (0/1)",
             y2_label="Cum ret bench",
             saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "target_variable_over_time_with_cum_ret.png",
             date_freq=self.config.data_freq
@@ -84,15 +89,15 @@ class Analytics:
         :return:
         """
         Vizu.plot_time_series(
-            df=self.data.aligned_df,
+            df=self.analytics_df,
             x_index=True,
             x_col=None,
             y_col=self.data.mkt_cumulative_returns.columns.to_list(),
             y2_col=self.data.rolling_raw_target_variable.columns.to_list(),
-            title="Cumulative market return and raw target variable over time",
+            title="Cumulative market return and forward max drawdown over time",
             xlabel="Date",
             ylabel="Cumulative market return",
-            y2_label="Rolling raw target variable",
+            y2_label="Forward max drawdown (raw)",
             saving_path=self.config.ROOT_DIR / "outputs" / "figures" / "cum_return_over_time.png",
             date_freq=self.config.data_freq
         )

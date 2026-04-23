@@ -117,6 +117,9 @@ class SimpleRollingWalkForwardCV:
                     if len(X_train) == 0 or len(X_val) == 0:
                         continue
 
+                    if len(np.unique(y_train)) < 2:
+                        continue
+
                     candidate_model = clone(self.model).set_params(**theta)
                     candidate_model.fit(X_train, y_train)
 
@@ -129,6 +132,7 @@ class SimpleRollingWalkForwardCV:
                         best_theta = theta
 
             if best_threshold is None or best_theta is None:
+                logger.warning(f"No valid combo found for test date {t_test} — skipping.")
                 continue
 
             refit_dates = all_dates[train_start:val_end]
@@ -149,6 +153,9 @@ class SimpleRollingWalkForwardCV:
             X_test, y_test = align_x_y(X_test, y_test)
 
             if len(X_refit) == 0 or len(X_test) == 0:
+                continue
+
+            if len(np.unique(y_refit)) < 2:
                 continue
 
             final_model = clone(self.model).set_params(**best_theta)
@@ -290,6 +297,9 @@ class NestedWalkForwardCV:
                         if len(X_train) == 0 or len(X_val) == 0:
                             continue
 
+                        if len(np.unique(y_train)) < 2:
+                            continue
+
                         candidate_model = clone(self.model).set_params(**theta)
                         candidate_model.fit(X_train, y_train)
 
@@ -307,6 +317,7 @@ class NestedWalkForwardCV:
                         best_theta = theta
 
             if best_threshold is None or best_theta is None:
+                logger.warning(f"No valid combo found for test date {t_test} — skipping.")
                 continue
 
             X_outer_train = self.feature_pipeline.make_features(
@@ -325,6 +336,9 @@ class NestedWalkForwardCV:
             X_outer_test, y_outer_test = align_x_y(X_outer_test, y_outer_test)
 
             if len(X_outer_train) == 0 or len(X_outer_test) == 0:
+                continue
+
+            if len(np.unique(y_outer_train)) < 2:
                 continue
 
             final_model = clone(self.model).set_params(**best_theta)
