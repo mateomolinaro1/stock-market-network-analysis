@@ -35,6 +35,7 @@ def main():
         graph_builder=graph_builder,
         feature_extractor=feature_extractor,
     )
+    feature_pipeline.precompute_cache(returns)
 
     model = LogisticRegression(
         solver="liblinear",

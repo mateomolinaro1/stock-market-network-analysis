@@ -27,26 +27,21 @@ logging.basicConfig(
 # -----------------------------
 # Simple walk-forward parameters
 # -----------------------------
-OUTER_TRAIN_SIZE = 252   # e.g. 1 year of daily data
-VAL_SIZE = 21            # e.g. 1 quarter of daily data
-LOOKBACK = 126              # lookback for rolling correlation estimation (e.g. 1 year)
-# THRESHOLD_GRID = [0.75, 0.8]  # example thresholds for graph construction
-# LOGIT_PARAM_GRID = [
-#     {"C": 0.01},
-#     {"C": 0.1},
-# ]
-THRESHOLD_GRID = [0.75]  # example thresholds for graph construction
-LOGIT_PARAM_GRID = [
-    {"C": 0.1},
-]
+OUTER_TRAIN_SIZE = config.inner_train_size   # e.g. 1 year of daily data
+VAL_SIZE = config.inner_val_size            # e.g. 1 quarter of daily data
+LOOKBACK = config.lookback_corr              # lookback for rolling correlation estimation (e.g. 1 year)
+THRESHOLD_GRID = config.threshold_grid  # example thresholds for graph construction
+LOGIT_PARAM_GRID = config.logit_param_grid
 
 
 def main():
     # -----------------------------
     # Data
     # -----------------------------
+    logger.info("Loading data...")
     data_manager = DataManager(config=config)
     data_manager.load_data()
+    logger.info("Data loaded successfully")
 
     asset_cols = data_manager.asset_returns.columns
     returns = data_manager.aligned_df[asset_cols]
@@ -69,6 +64,9 @@ def main():
         graph_builder=graph_builder,
         feature_extractor=feature_extractor,
     )
+    logger.info("Precomputing feature pipeline cache...")
+    feature_pipeline.precompute_cache(returns)
+    logger.info("Feature pipeline cache precomputed successfully")
 
     # -----------------------------
     # Model

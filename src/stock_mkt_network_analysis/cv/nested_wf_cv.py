@@ -185,6 +185,8 @@ class NestedWalkForwardCV:
                 }
             )
 
+            self.feature_pipeline.evict_before(outer_train_dates[0])
+
         predictions = pd.DataFrame(prediction_records).set_index("date").sort_index()
         selection_history = pd.DataFrame(selection_records).set_index("date").sort_index()
 

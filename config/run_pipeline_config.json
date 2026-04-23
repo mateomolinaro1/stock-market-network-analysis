@@ -19,14 +19,13 @@
   },
   "FORECASTING": {
     "FORECASTING_HORIZON": 1,
-    "LOOKBACK_TARGET_AND_CORR": 126,
+    "LOOKBACK_CORR": 252,
     "INNER_TRAIN_SIZE": 252,
     "INNER_VAL_SIZE": 21,
     "INNER_STEP_SIZE": 1,
-    "THRESHOLD_GRID": [0.75, 0.8],
+    "THRESHOLD_GRID": [0.75],
     "LOGIT_PARAM_GRID": [
-      {"C": 0.01},
-      {"C": 0.1}
+      {"C": 1.0}
     ]
   }
 }
