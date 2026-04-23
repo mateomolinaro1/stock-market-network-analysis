@@ -42,8 +42,8 @@ class Analytics:
             self.data.target_variable_to_predict.rename(
                 columns={self.config.target_variable: "target_to_predict"}
             ),
-            how="left",
-        ).join(self.mkt_cumulative_returns, how="left")
+            how="left"
+        )
 
     def _get_plot_target_variable(self)->None:
         """
