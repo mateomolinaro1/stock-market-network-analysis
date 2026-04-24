@@ -18,7 +18,7 @@
     "TARGET_VARIABLE": "dummy_forward_max_drawdown",
     "TARGET_VARIABLE_ROLLING_WINDOW": 21,
     "QUANTILE_FOR_DUMMY": 0.10,
-    "RETURNS_TYPE": "idio",
+    "RETURNS_TYPE": "raw",
     "MKT_BENCHMARK_COLUMN": "Russell 1000",
     "LIMIT_FFILL_BETAS": 5,
     "LIMIT_FFILL_RF": 10
