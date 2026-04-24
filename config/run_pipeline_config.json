@@ -6,16 +6,22 @@
     "FILENAMES_TO_LOAD": [
       "data/wrds_funda_gross_query.parquet",
       "data/wrds_gross_query_small.parquet",
-      "data/russell_returns.parquet"
+      "data/russell_returns.parquet",
+      "data/risk_free_returns.parquet"
     ],
     "DATES_FILENAME": "data/wrds_gross_query_small.parquet",
-    "MKT_RETURNS_FILENAME": "data/russell_returns.parquet"
+    "MKT_RETURNS_FILENAME": "data/russell_returns.parquet",
+    "RF_RETURNS_FILENAME": "data/risk_free_returns.parquet"
   }},
   "DATA": {
     "DATA_FREQ": "d",
     "TARGET_VARIABLE": "dummy_forward_max_drawdown",
     "TARGET_VARIABLE_ROLLING_WINDOW": 21,
-    "QUANTILE_FOR_DUMMY": 0.10
+    "QUANTILE_FOR_DUMMY": 0.10,
+    "RETURNS_TYPE": "idio",
+    "MKT_BENCHMARK_COLUMN": "Russell 1000",
+    "LIMIT_FFILL_BETAS": 5,
+    "LIMIT_FFILL_RF": 10
   },
   "FORECASTING": {
     "FORECASTING_HORIZON": 0,
