@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from sklearn.metrics import roc_auc_score
 from dotenv import load_dotenv
 
 from stock_mkt_network_analysis.data.data_manager import DataManager
@@ -57,8 +56,7 @@ def main():
     data_manager.load_data()
     logger.info("Data loaded successfully")
 
-    asset_cols = data_manager.asset_returns.columns
-    returns = data_manager.aligned_df[asset_cols]
+    returns = data_manager.network_returns
     dates = returns.index
 
     # IMPORTANT:

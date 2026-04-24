@@ -32,12 +32,17 @@ class Config:
         self.filenames_to_load: List[str]|None = None
         self.dates_filename: str|None = None
         self.mkt_returns_filename: str|None = None
+        self.rf_returns_filename: str|None = None
 
         # Data
         self.data_freq: str|None = None
         self.target_variable: str|None = None
         self.target_variable_rolling_window: int|None = None
         self.quantile_for_dummy: float|None = None
+        self.returns_type: str = "raw"
+        self.mkt_benchmark_column: str | None = None
+        self.limit_ffill_betas: int|None = None
+        self.limit_ffill_rf: int|None = None
 
         # Forecasting
         self.forecasting_horizon: int|None = None
@@ -88,6 +93,8 @@ class Config:
                 self.dates_filename = config.get("AWS").get("S3").get("DATES_FILENAME")
             if config.get("AWS").get("S3").get("MKT_RETURNS_FILENAME") is not None:
                 self.mkt_returns_filename = config.get("AWS").get("S3").get("MKT_RETURNS_FILENAME")
+                if config.get("AWS").get("S3").get("RF_RETURNS_FILENAME") is not None:
+                    self.rf_returns_filename = config.get("AWS").get("S3").get("RF_RETURNS_FILENAME")
 
             # Data
             if config.get("DATA").get("DATA_FREQ") is not None:
@@ -98,6 +105,14 @@ class Config:
                 self.target_variable_rolling_window = config.get("DATA").get("TARGET_VARIABLE_ROLLING_WINDOW")
             if config.get("DATA").get("QUANTILE_FOR_DUMMY") is not None:
                 self.quantile_for_dummy = config.get("DATA").get("QUANTILE_FOR_DUMMY")
+            if config.get("DATA").get("RETURNS_TYPE") is not None:
+                self.returns_type = config.get("DATA").get("RETURNS_TYPE")
+            if config.get("DATA").get("MKT_BENCHMARK_COLUMN") is not None:
+                self.mkt_benchmark_column = config.get("DATA").get("MKT_BENCHMARK_COLUMN")
+            if config.get("DATA").get("LIMIT_FFILL_BETAS") is not None:
+                self.limit_ffill_betas = config.get("DATA").get("LIMIT_FFILL_BETAS")
+            if config.get("DATA").get("LIMIT_FFILL_RF") is not None:
+                self.limit_ffill_rf = config.get("DATA").get("LIMIT_FFILL_RF")
 
             # Forecasting
             forecasting = config.get("FORECASTING", {})

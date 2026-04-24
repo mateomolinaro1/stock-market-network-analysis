@@ -18,7 +18,9 @@ class DataManager:
         self.dates: list[pd.Timestamp] | None = None
         self.universe: dict[pd.Timestamp, list[int]] | None = None
         self.asset_returns: pd.DataFrame | None = None
+        self.idio_asset_returns: pd.DataFrame | None = None
         self.mkt_returns: pd.DataFrame | None = None
+        self.rf_returns: pd.DataFrame | None = None
         self.mkt_cumulative_returns: pd.DataFrame | None = None
         self.rolling_raw_target_variable: pd.DataFrame | None = None
         self.target_variable: pd.DataFrame | None = None
@@ -54,6 +56,9 @@ class DataManager:
         self._build_universe()
         self._build_asset_returns()
         self._build_mkt_returns()
+        self._build_rf_returns()
+        if self.config.returns_type == "idio":
+            self._build_idio_returns()
         self._build_target_variable()
         self._build_aligned_df()
 
@@ -92,6 +97,16 @@ class DataManager:
 
         mkt_returns_obj = getattr(self, attr_name)
         return mkt_returns_obj
+
+    def _get_rf_attribute(self) -> pd.DataFrame:
+        filename = self.config.rf_returns_filename
+        attr_name = Path(filename).stem
+
+        if not hasattr(self, attr_name):
+            raise AttributeError(f"Attribute '{attr_name}' not found. Did you load the data?")
+
+        rf_returns_obj = getattr(self, attr_name)
+        return rf_returns_obj
 
     def _set_dates(self) -> None:
         """
@@ -148,10 +163,73 @@ class DataManager:
         :return:
         """
         mkt_returns = self._get_mkt_attribute()
-        mkt_returns = mkt_returns[[mkt_returns.columns[0]]].copy()
+        mkt_returns.index = pd.to_datetime(mkt_returns.index)
+        col = self.config.mkt_benchmark_column
+        if col is not None:
+            if col not in mkt_returns.columns:
+                raise ValueError(f"MKT_BENCHMARK_COLUMN '{col}' not found in market returns. Available: {list(mkt_returns.columns)}")
+            mkt_returns = mkt_returns[[col]].copy()
+        else:
+            mkt_returns = mkt_returns[[mkt_returns.columns[0]]].copy()
         self.mkt_returns = mkt_returns.pct_change(fill_method=None).dropna()
         cum_mkt_returns = Metrics.compute_cumulative_return(df=self.mkt_returns)
         self.mkt_cumulative_returns = cum_mkt_returns
+
+    def _build_rf_returns(self) -> None:
+        """
+        Build the f returns attribute from the loaded data.
+        :return:
+        """
+        rf_returns = self._get_rf_attribute()
+        self.rf_returns = rf_returns
+
+    def _build_idio_returns(self) -> None:
+        """
+        Compute CAPM idiosyncratic returns for each asset using rolling betas.
+        beta_i(t) = rolling_cov(R_i - Rf, R_m - Rf) / rolling_var(R_m - Rf)
+        idio_i(t) = (R_i(t) - Rf(t)) - beta_i(t) * (R_m(t) - Rf(t))
+        The rolling window matches lookback_corr to ensure no look-ahead bias.
+        Aligned to asset_returns.index (= self.dates) so all series share the same master index.
+        """
+        rf_raw = self.rf_returns
+        rf = rf_raw.iloc[:, 0]
+        rf.index = pd.to_datetime(rf.index)
+        rf = rf[~rf.index.duplicated(keep="last")]
+        rf = rf.reindex(self.asset_returns.index).ffill(limit=self.config.limit_ffill_rf)
+
+        base_index = self.asset_returns.index
+
+        # Rolling computation requires aligned, gap-free data — use intersection.
+        # The result is then re indexed to base_index so idio_asset_returns shares
+        # the same master date index as asset_returns for aligned_df merging.
+        common_index = base_index.intersection(rf.index).intersection(self.mkt_returns.index)
+
+        rf_c = rf.reindex(common_index)
+        mkt_c = self.mkt_returns.iloc[:, 0].reindex(common_index)
+        asset_c = self.asset_returns.reindex(common_index)
+
+        excess_asset = asset_c.subtract(rf_c, axis=0)
+        excess_mkt = mkt_c - rf_c
+
+        window = self.config.lookback_corr
+        rolling_cov = excess_asset.rolling(window).cov(excess_mkt)
+        rolling_var = excess_mkt.rolling(window).var()
+        beta = rolling_cov.div(rolling_var, axis=0)
+        beta.ffill(inplace=True, limit=self.config.limit_ffill_betas)
+
+        idio = excess_asset - beta.mul(excess_mkt, axis=0)
+        self.idio_asset_returns = idio.reindex(base_index)
+
+    @property
+    def network_returns(self) -> pd.DataFrame:
+        """Returns the returns used for network construction, sourced from aligned_df."""
+        if self.aligned_df is None:
+            raise ValueError("Data has not been loaded. Call load_data() first.")
+        if self.config.returns_type == "idio":
+            idio_cols = [c for c in self.aligned_df.columns if str(c).startswith("idio_")]
+            return self.aligned_df[idio_cols].rename(columns=lambda c: int(str(c)[len("idio_"):]))
+        raw_cols = [c for c in self.aligned_df.columns if c in self.asset_returns.columns]
+        return self.aligned_df[raw_cols]
 
     def _build_target_variable(self) -> None:
         """
@@ -258,6 +336,9 @@ class DataManager:
         df = _merge_one(df, self.mkt_returns)
         df = _merge_one(df, self.mkt_cumulative_returns)
         df = _merge_one(df, self.asset_returns)
+        if self.idio_asset_returns is not None:
+            idio_renamed = self.idio_asset_returns.rename(columns=lambda c: f"idio_{c}")
+            df = _merge_one(df, idio_renamed)
 
         self.aligned_df = df.set_index(base_index_name)
         # Get the first index when the target is available
