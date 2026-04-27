@@ -4,6 +4,9 @@ A module for performing various analytics on stock market data.
 from stock_mkt_network_analysis.data.data_manager import DataManager
 from stock_mkt_network_analysis.utils.market_metric_utils import Metrics
 from stock_mkt_network_analysis.analytics.visualization import Vizu
+from stock_mkt_network_analysis.analytics.network_animations import RollingNetworkAnimator
+from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
+from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
 from stock_mkt_network_analysis.utils.config import Config
 import logging
 
@@ -28,6 +31,71 @@ class Analytics:
         self._get_plot_target_variable()
         self._get_plot_target_variable_with_cum_ret()
         self._get_plot_raw_target_variable()
+
+    def get_network_animations(
+            self,
+            start_date: str | None = None,
+            end_date: str | None = None,
+            threshold: float | None = None,
+            degree_threshold: int | None = None,
+            max_frames: int | None = None,
+            normalize_degree_counts: bool = False,
+            degree_xscale: str = "linear",
+            degree_yscale: str = "linear",
+            degree_y_max_quantile: float | None = None,
+            degree_plot_kind: str = "hist",
+            normalize_rich_club: bool = False,
+            n_random_reference: int = 10,
+            random_swaps_per_edge: int = 5,
+            rich_club_xscale: str = "linear",
+            rich_club_yscale: str = "linear",
+    ) -> dict[str, object]:
+        """
+        Generate animated diagnostics for rolling correlation networks.
+
+        If no period is provided, animations are generated on all eligible dates.
+        """
+        if threshold is None and not self.config.threshold_grid:
+            raise ValueError("A threshold must be provided when config.threshold_grid is empty.")
+
+        threshold = threshold if threshold is not None else self.config.threshold_grid[0]
+
+        animator = RollingNetworkAnimator(
+            correlation_estimator=RollingCorrelationEstimator(lookback=self.config.lookback_corr),
+            graph_builder=ThresholdGraphBuilder(use_absolute_threshold=True, keep_sign=True),
+            threshold=threshold,
+            figures_dir=self.config.ROOT_DIR / "outputs" / "figures",
+        )
+
+        returns = self.data.network_returns
+        degree_path = animator.animate_degree_distribution(
+            returns=returns,
+            start_date=start_date,
+            end_date=end_date,
+            max_frames=max_frames,
+            normalize_counts=normalize_degree_counts,
+            xscale=degree_xscale,
+            yscale=degree_yscale,
+            y_max_quantile=degree_y_max_quantile,
+            plot_kind=degree_plot_kind,
+        )
+        rich_club_path = animator.animate_rich_club(
+            returns=returns,
+            start_date=start_date,
+            end_date=end_date,
+            degree_threshold=degree_threshold,
+            max_frames=max_frames,
+            normalized=normalize_rich_club,
+            n_random_reference=n_random_reference,
+            random_swaps_per_edge=random_swaps_per_edge,
+            xscale=rich_club_xscale,
+            yscale=rich_club_yscale,
+        )
+
+        return {
+            "degree_distribution": degree_path,
+            "rich_club": rich_club_path,
+        }
 
 
     def _get_data_for_analytics(self)->None:

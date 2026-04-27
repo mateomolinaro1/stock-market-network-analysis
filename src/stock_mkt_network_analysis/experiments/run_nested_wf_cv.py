@@ -10,11 +10,13 @@ from stock_mkt_network_analysis.utils.config import Config
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
+from stock_mkt_network_analysis.time_series.adaptive_time_series_feature_extractor import (
+    AdaptiveTimeSeriesFeatureExtractor,
+)
 from stock_mkt_network_analysis.utils.ml_metrics import get_scoring_func
+from dotenv import load_dotenv
 import logging
 import sys
-from dotenv import load_dotenv
-
 load_dotenv()
 config = Config()
 logger = logging.getLogger(__name__)
@@ -29,29 +31,34 @@ def main():
     data_manager = DataManager(config=config)
     data_manager.load_data()
 
-    asset_cols = data_manager.asset_returns.columns
-    returns = data_manager.aligned_df[asset_cols]
+    returns = data_manager.network_returns
     dates = returns.index
 
     target = data_manager.target_variable_to_predict.squeeze().dropna()
 
-    correlation_estimator = RollingCorrelationEstimator(lookback=config.lookback_target_and_corr)
+    correlation_estimator = RollingCorrelationEstimator(lookback=config.lookback_corr)
     graph_builder = ThresholdGraphBuilder(use_absolute_threshold=True, keep_sign=True)
     feature_extractor = BasicNetworkFeatureExtractor()
+    time_series_feature_extractor = AdaptiveTimeSeriesFeatureExtractor.from_config(config)
 
     feature_pipeline = RollingNetworkFeaturePipeline(
         correlation_estimator=correlation_estimator,
         graph_builder=graph_builder,
         feature_extractor=feature_extractor,
+        time_series_feature_extractor=time_series_feature_extractor,
     )
-    feature_pipeline.precompute_cache(returns)
+    feature_pipeline.precompute_cache(
+        returns=returns,
+        market_returns=data_manager.mkt_returns,
+        risk_free_returns=data_manager.rf_returns,
+    )
 
     model = LogisticRegression(
         solver="liblinear",
         class_weight="balanced",
         max_iter=1000,
     )
-    start_oos = config.lookback_target_and_corr + config.inner_train_size + config.inner_val_size + 1
+    start_oos = config.lookback_corr + config.inner_train_size + config.inner_val_size + 1
     outer_test_dates = dates[start_oos:]
 
     runner = NestedWalkForwardCV(

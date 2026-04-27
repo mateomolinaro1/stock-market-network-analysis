@@ -33,3 +33,4 @@ outputs/results/*
 outputs/figures/*
 !outputs/figures/.gitkeep
 
+*.code-workspace

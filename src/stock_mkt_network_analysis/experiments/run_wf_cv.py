@@ -9,6 +9,9 @@ from stock_mkt_network_analysis.utils.config import Config
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
+from stock_mkt_network_analysis.time_series.adaptive_time_series_feature_extractor import (
+    AdaptiveTimeSeriesFeatureExtractor,
+)
 from stock_mkt_network_analysis.utils.ml_metrics import get_scoring_func
 import logging
 import sys
@@ -70,14 +73,20 @@ def main():
     correlation_estimator = RollingCorrelationEstimator(lookback=LOOKBACK)
     graph_builder = ThresholdGraphBuilder(use_absolute_threshold=True, keep_sign=True)
     feature_extractor = BasicNetworkFeatureExtractor()
+    time_series_feature_extractor = AdaptiveTimeSeriesFeatureExtractor.from_config(config)
 
     feature_pipeline = RollingNetworkFeaturePipeline(
         correlation_estimator=correlation_estimator,
         graph_builder=graph_builder,
         feature_extractor=feature_extractor,
+        time_series_feature_extractor=time_series_feature_extractor,
     )
     logger.info("Precomputing feature pipeline cache...")
-    feature_pipeline.precompute_cache(returns)
+    feature_pipeline.precompute_cache(
+        returns=returns,
+        market_returns=data_manager.mkt_returns,
+        risk_free_returns=data_manager.rf_returns,
+    )
     logger.info("Feature pipeline cache precomputed successfully")
 
     start_oos = LOOKBACK + OUTER_TRAIN_SIZE + VAL_SIZE + 1
