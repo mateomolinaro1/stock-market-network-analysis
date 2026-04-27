@@ -9,7 +9,7 @@ from stock_mkt_network_analysis.utils.config import Config
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
-from stock_mkt_network_analysis.utils.ml_metrics import safe_roc_auc
+from stock_mkt_network_analysis.utils.ml_metrics import get_scoring_func
 import logging
 import sys
 
@@ -87,7 +87,7 @@ def main():
         feature_pipeline=feature_pipeline,
         model_grid=MODEL_GRID,
         threshold_grid=THRESHOLD_GRID,
-        scoring_func=safe_roc_auc,
+        scoring_func=get_scoring_func(config.scoring_metric),
         outer_train_size=OUTER_TRAIN_SIZE,
         val_size=VAL_SIZE,
         target_horizon=config.target_variable_rolling_window,
@@ -97,6 +97,8 @@ def main():
         returns=returns,
         target=target,
         outer_test_dates=outer_test_dates,
+        aws_s3=data_manager.aws.s3,
+        cv_config=config,
     )
 
     print("Predictions head:")

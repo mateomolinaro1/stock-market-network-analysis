@@ -53,6 +53,9 @@ class Config:
         self.threshold_grid: List[float]|None = None
         self.logit_param_grid: List[Dict]|None = None
         self.model_grid: List[Tuple[Any, List[Dict]]]|None = None
+        self.scoring_metric: str = "roc_auc"
+        self.load_or_compute_cv: str = "compute"
+        self.save_cv: bool = False
 
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
@@ -132,3 +135,9 @@ class Config:
                 self.logit_param_grid = forecasting.get("LOGIT_PARAM_GRID")
             if forecasting.get("MODEL_GRID") is not None:
                 self.model_grid = self._parse_model_grid(forecasting.get("MODEL_GRID"))
+            if forecasting.get("SCORING_METRIC") is not None:
+                self.scoring_metric = forecasting.get("SCORING_METRIC")
+            if forecasting.get("LOAD_OR_COMPUTE_CV") is not None:
+                self.load_or_compute_cv = forecasting.get("LOAD_OR_COMPUTE_CV")
+            if forecasting.get("SAVE_CV") is not None:
+                self.save_cv = forecasting.get("SAVE_CV")

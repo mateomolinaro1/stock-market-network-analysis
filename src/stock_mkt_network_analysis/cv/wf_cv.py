@@ -15,11 +15,14 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Literal, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from sklearn.dummy import DummyClassifier
 import logging
 
 from stock_mkt_network_analysis.cv.folds import build_rolling_time_series_folds
 from stock_mkt_network_analysis.cv.feature_pipeline import RollingNetworkFeaturePipeline
 from stock_mkt_network_analysis.models.utils import predict_positive_class_proba
+from stock_mkt_network_analysis.utils.cv_cache import compute_cache_key, load_cv_result, save_cv_result
+from stock_mkt_network_analysis.utils.ml_metrics import compute_oos_metrics
 from stock_mkt_network_analysis.utils.utils import align_x_y
 
 
@@ -30,6 +33,7 @@ logger = logging.getLogger(__name__)
 class WalkForwardResult:
     predictions: pd.DataFrame
     selection_history: pd.DataFrame
+    oos_metrics: pd.DataFrame
 
 
 @dataclass
@@ -53,7 +57,20 @@ class SimpleRollingWalkForwardCV:
         returns: pd.DataFrame,
         target: pd.Series,
         outer_test_dates: Sequence[pd.Timestamp],
+        aws_s3=None,
+        cv_config=None,
     ) -> WalkForwardResult:
+
+        cache_key = None
+        if aws_s3 is not None and cv_config is not None:
+            cache_key = compute_cache_key(cv_config)
+            logger.info(f"CV cache key: {cache_key}")
+            if cv_config.load_or_compute_cv == "load":
+                cached = load_cv_result(cache_key, aws_s3)
+                if cached is not None:
+                    logger.info("Loaded CV result from S3 cache.")
+                    return WalkForwardResult(**cached)
+                logger.warning("Cache miss — computing CV from scratch.")
 
         returns = returns.sort_index()
         target = target.sort_index()
@@ -122,10 +139,10 @@ class SimpleRollingWalkForwardCV:
                             continue
 
                         if len(np.unique(y_train)) < 2:
-                            continue
-
-                        fitted = clone(base_model).set_params(**theta)
-                        fitted.fit(X_train, y_train)
+                            fitted = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
+                        else:
+                            fitted = clone(base_model).set_params(**theta)
+                            fitted.fit(X_train, y_train)
 
                         yhat_val = predict_positive_class_proba(fitted, X_val)
                         score = self.scoring_func(y_val.values, yhat_val)
@@ -136,7 +153,38 @@ class SimpleRollingWalkForwardCV:
                             best_theta = theta
 
                 if best_threshold is None or best_theta is None:
-                    logger.warning(f"No valid combo found for {model_name} at {t_test} — skipping.")
+                    logger.warning(f"No valid combo found for {model_name} at {t_test} — using DummyClassifier fallback.")
+                    refit_dates = all_dates[train_start:val_end]
+                    y_refit = target.loc[refit_dates].dropna()
+                    y_test = target.loc[test_dates].dropna()
+                    if len(y_refit) == 0 or len(y_test) == 0:
+                        continue
+                    dummy_X_refit = np.zeros((len(y_refit), 1))
+                    dummy_X_test = np.zeros((len(y_test), 1))
+                    final_model = DummyClassifier(strategy="most_frequent").fit(dummy_X_refit, y_refit)
+                    yhat_test = predict_positive_class_proba(final_model, dummy_X_test)
+                    prediction_records.append({
+                        "date": t_test,
+                        "model": model_name,
+                        "y_true": int(y_test.iloc[0]),
+                        "y_pred": float(yhat_test[0]),
+                        "y_pred_binary": int(yhat_test[0] >= 0.5),
+                        "best_threshold": float("nan"),
+                        "validation_score": float("nan"),
+                    })
+                    selection_records.append({
+                        "date": t_test,
+                        "model": model_name,
+                        "scheme": "simple",
+                        "train_start": train_dates[0],
+                        "train_end": train_dates[-1],
+                        "val_start": val_dates[0],
+                        "val_end": val_dates[-1],
+                        "best_threshold": float("nan"),
+                        "best_theta": None,
+                        "validation_score": float("nan"),
+                        "n_refit_obs": int(len(y_refit)),
+                    })
                     continue
 
                 refit_dates = all_dates[train_start:val_end]
@@ -160,10 +208,10 @@ class SimpleRollingWalkForwardCV:
                     continue
 
                 if len(np.unique(y_refit)) < 2:
-                    continue
-
-                final_model = clone(base_model).set_params(**best_theta)
-                final_model.fit(X_refit, y_refit)
+                    final_model = DummyClassifier(strategy="most_frequent").fit(X_refit, y_refit)
+                else:
+                    final_model = clone(base_model).set_params(**best_theta)
+                    final_model.fit(X_refit, y_refit)
 
                 yhat_test = predict_positive_class_proba(final_model, X_test)
 
@@ -215,10 +263,16 @@ class SimpleRollingWalkForwardCV:
             .sort_index()
         )
 
-        return WalkForwardResult(
+        result = WalkForwardResult(
             predictions=predictions,
             selection_history=selection_history,
+            oos_metrics=compute_oos_metrics(predictions),
         )
+
+        if aws_s3 is not None and cv_config is not None and cv_config.save_cv:
+            save_cv_result(result, cache_key, aws_s3)
+
+        return result
 
 
 @dataclass
@@ -240,7 +294,20 @@ class NestedWalkForwardCV:
         returns: pd.DataFrame,
         target: pd.Series,
         outer_test_dates: Sequence[pd.Timestamp],
+        aws_s3=None,
+        cv_config=None,
     ) -> WalkForwardResult:
+
+        cache_key = None
+        if aws_s3 is not None and cv_config is not None:
+            cache_key = compute_cache_key(cv_config)
+            logger.info(f"CV cache key: {cache_key}")
+            if cv_config.load_or_compute_cv == "load":
+                cached = load_cv_result(cache_key, aws_s3)
+                if cached is not None:
+                    logger.info("Loaded CV result from S3 cache.")
+                    return WalkForwardResult(**cached)
+                logger.warning("Cache miss — computing CV from scratch.")
 
         returns = returns.sort_index()
         target = target.sort_index()
@@ -323,10 +390,10 @@ class NestedWalkForwardCV:
                             continue
 
                         if len(np.unique(y_train)) < 2:
-                            continue
-
-                        candidate_model = clone(self.model).set_params(**theta)
-                        candidate_model.fit(X_train, y_train)
+                            candidate_model = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
+                        else:
+                            candidate_model = clone(self.model).set_params(**theta)
+                            candidate_model.fit(X_train, y_train)
 
                         yhat_val = predict_positive_class_proba(candidate_model, X_val)
                         score = self.scoring_func(y_val.values, yhat_val)
@@ -342,7 +409,33 @@ class NestedWalkForwardCV:
                         best_theta = theta
 
             if best_threshold is None or best_theta is None:
-                logger.warning(f"No valid combo found for test date {t_test} — skipping.")
+                logger.warning(f"No valid combo found for test date {t_test} — using DummyClassifier fallback.")
+                y_outer_train = target.loc[outer_train_dates].dropna()
+                y_outer_test = target.loc[[t_test]].dropna()
+                if len(y_outer_train) == 0 or len(y_outer_test) == 0:
+                    continue
+                dummy_X_train = np.zeros((len(y_outer_train), 1))
+                dummy_X_test = np.zeros((len(y_outer_test), 1))
+                final_model = DummyClassifier(strategy="most_frequent").fit(dummy_X_train, y_outer_train)
+                yhat_test = predict_positive_class_proba(final_model, dummy_X_test)
+                prediction_records.append({
+                    "date": t_test,
+                    "y_true": int(y_outer_test.iloc[0]),
+                    "y_pred": float(yhat_test[0]),
+                    "y_pred_binary": int(yhat_test[0] >= 0.5),
+                    "best_threshold": float("nan"),
+                    "inner_cv_score": float("nan"),
+                })
+                selection_records.append({
+                    "date": t_test,
+                    "scheme": "nested",
+                    "outer_train_start": outer_train_dates[0],
+                    "outer_train_end": outer_train_dates[-1],
+                    "best_threshold": float("nan"),
+                    "best_theta": None,
+                    "inner_cv_score": float("nan"),
+                    "n_outer_train_obs": int(len(y_outer_train)),
+                })
                 continue
 
             X_outer_train = self.feature_pipeline.make_features(
@@ -364,10 +457,10 @@ class NestedWalkForwardCV:
                 continue
 
             if len(np.unique(y_outer_train)) < 2:
-                continue
-
-            final_model = clone(self.model).set_params(**best_theta)
-            final_model.fit(X_outer_train, y_outer_train)
+                final_model = DummyClassifier(strategy="most_frequent").fit(X_outer_train, y_outer_train)
+            else:
+                final_model = clone(self.model).set_params(**best_theta)
+                final_model.fit(X_outer_train, y_outer_train)
 
             yhat_test = predict_positive_class_proba(final_model, X_outer_test)
 
@@ -400,10 +493,16 @@ class NestedWalkForwardCV:
         predictions = pd.DataFrame(prediction_records).set_index("date").sort_index()
         selection_history = pd.DataFrame(selection_records).set_index("date").sort_index()
 
-        return WalkForwardResult(
+        result = WalkForwardResult(
             predictions=predictions,
             selection_history=selection_history,
+            oos_metrics=compute_oos_metrics(predictions),
         )
+
+        if aws_s3 is not None and cv_config is not None and cv_config.save_cv:
+            save_cv_result(result, cache_key, aws_s3)
+
+        return result
 
 
 def get_cv_runner(

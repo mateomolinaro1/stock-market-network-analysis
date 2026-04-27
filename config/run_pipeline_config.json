@@ -18,7 +18,7 @@
     "TARGET_VARIABLE": "dummy_forward_max_drawdown",
     "TARGET_VARIABLE_ROLLING_WINDOW": 21,
     "QUANTILE_FOR_DUMMY": 0.10,
-    "RETURNS_TYPE": "raw",
+    "RETURNS_TYPE": "idio",
     "MKT_BENCHMARK_COLUMN": "Russell 1000",
     "LIMIT_FFILL_BETAS": 5,
     "LIMIT_FFILL_RF": 10
@@ -29,6 +29,9 @@
     "INNER_TRAIN_SIZE": 252,
     "INNER_VAL_SIZE": 42,
     "INNER_STEP_SIZE": 1,
+    "SCORING_METRIC": "pr_auc",
+    "LOAD_OR_COMPUTE_CV": "compute",
+    "SAVE_CV": true,
     "THRESHOLD_GRID": [0.75],
     "MODEL_GRID": [
       {

@@ -227,7 +227,7 @@ class DataManager:
             raise ValueError("Data has not been loaded. Call load_data() first.")
         if self.config.returns_type == "idio":
             idio_cols = [c for c in self.aligned_df.columns if str(c).startswith("idio_")]
-            return self.aligned_df[idio_cols].rename(columns=lambda c: int(str(c)[len("idio_"):]))
+            return self.aligned_df[idio_cols].rename(columns=lambda c: int(str(c)[len("idio_"):])).dropna(how="all")
         raw_cols = [c for c in self.aligned_df.columns if c in self.asset_returns.columns]
         return self.aligned_df[raw_cols]
 

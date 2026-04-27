@@ -10,10 +10,19 @@ from stock_mkt_network_analysis.utils.config import Config
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
-from stock_mkt_network_analysis.utils.ml_metrics import safe_roc_auc
+from stock_mkt_network_analysis.utils.ml_metrics import get_scoring_func
+import logging
+import sys
 from dotenv import load_dotenv
+
 load_dotenv()
 config = Config()
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
 def main():
     # Data
@@ -50,7 +59,7 @@ def main():
         model=model,
         threshold_grid=config.threshold_grid,
         hyperparameter_grid=config.logit_param_grid,
-        scoring_func=safe_roc_auc,
+        scoring_func=get_scoring_func(config.scoring_metric),
         inner_train_size=config.inner_train_size,
         inner_val_size=config.inner_val_size,
         inner_step_size=config.inner_step_size,
@@ -60,6 +69,8 @@ def main():
         returns=returns,
         target=target,
         outer_test_dates=outer_test_dates,
+        aws_s3=data_manager.aws.s3,
+        cv_config=config,
     )
 
     print(result.predictions.head())
