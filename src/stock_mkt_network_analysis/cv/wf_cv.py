@@ -526,9 +526,8 @@ def get_cv_runner(
 
         return SimpleRollingWalkForwardCV(
             feature_pipeline=feature_pipeline,
-            model=model,
+            model_grid=[(model, hyperparameter_grid)],
             threshold_grid=threshold_grid,
-            hyperparameter_grid=hyperparameter_grid,
             scoring_func=scoring_func,
             outer_train_size=outer_train_size,
             val_size=val_size,
