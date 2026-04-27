@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Tuple
 
 import logging
+import matplotlib
+matplotlib.use('Agg')  # non-interactive backend: renders to file without GUI event loop
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -22,12 +24,17 @@ logger = logging.getLogger(__name__)
 class RollingNetworkAnimator:
     """
     Build animated network diagnostics from rolling return-based graphs.
+
+    If corr_cache is provided (a pre-computed {date: corr_matrix} dict, e.g. from
+    RollingNetworkFeaturePipeline._corr_cache), build_graphs reuses it instead of
+    recomputing rolling correlations — the dominant cost when animating.
     """
 
     correlation_estimator: RollingCorrelationEstimator
     graph_builder: ThresholdGraphBuilder
     threshold: float
     figures_dir: Path | str
+    corr_cache: Optional[Dict[pd.Timestamp, pd.DataFrame]] = None
 
     def __post_init__(self) -> None:
         self.figures_dir = Path(self.figures_dir)
@@ -46,7 +53,11 @@ class RollingNetworkAnimator:
         estimator, so each graph at date t uses observations strictly before t.
         """
         returns = returns.sort_index()
-        corr_cache = self.correlation_estimator.compute_rolling(returns)
+        corr_cache = (
+            self.corr_cache
+            if self.corr_cache is not None
+            else self.correlation_estimator.compute_rolling(returns)
+        )
         dates = self._select_dates(corr_cache.keys(), start_date, end_date, max_frames)
 
         graphs: Dict[pd.Timestamp, nx.Graph] = {}

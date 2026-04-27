@@ -177,10 +177,13 @@ class DataManager:
 
     def _build_rf_returns(self) -> None:
         """
-        Build the f returns attribute from the loaded data.
+        Build the rf returns attribute from the loaded data.
         :return:
         """
         rf_returns = self._get_rf_attribute()
+        rf_returns.index = pd.to_datetime(rf_returns.index)
+        if rf_returns.index.duplicated().any():
+            rf_returns = rf_returns[~rf_returns.index.duplicated(keep="last")]
         self.rf_returns = rf_returns
 
     def _build_idio_returns(self) -> None:

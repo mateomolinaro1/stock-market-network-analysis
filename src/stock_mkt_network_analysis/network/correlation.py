@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Optional
 import logging
 
+import numpy as np
 import pandas as pd
+from sklearn.covariance import LedoitWolf
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +15,14 @@ logger = logging.getLogger(__name__)
 class RollingCorrelationEstimator:
     lookback: int
     min_non_nan_assets: Optional[int] = None
+    halflife: Optional[int] = None
 
     def compute_correlation(self, window_returns: pd.DataFrame) -> pd.DataFrame:
         """
         Estimate the correlation matrix from a lookback window.
+
+        If halflife is set, uses exponential weighting + Ledoit-Wolf shrinkage.
+        Otherwise falls back to sample correlation via np.corrcoef.
         """
         clean_window = window_returns.dropna(axis=1, how="any")
 
@@ -27,7 +33,33 @@ class RollingCorrelationEstimator:
         if clean_window.shape[1] < 2:
             return pd.DataFrame()
 
-        corr = clean_window.corr()
+        T, N = clean_window.shape
+        arr = clean_window.to_numpy(dtype=float)
+
+        if self.halflife is not None:
+            decay = 0.5 ** (1.0 / self.halflife)
+            # Most-recent observation gets highest weight
+            raw_w = decay ** np.arange(T - 1, -1, -1)
+            weights = raw_w / raw_w.sum()
+
+            mu_w = (weights[:, None] * arr).sum(axis=0)
+            arr_c = arr - mu_w
+            # Scale so (1/T) * Z^T Z = S_w (weighted sample covariance)
+            z = arr_c * np.sqrt(weights[:, None] * T)
+
+            lw = LedoitWolf(assume_centered=True)
+            lw.fit(z)
+            cov = lw.covariance_
+
+            std = np.sqrt(np.diag(cov))
+            if np.any(std < 1e-12):
+                return pd.DataFrame()
+            corr_arr = cov / np.outer(std, std)
+            np.clip(corr_arr, -1.0, 1.0, out=corr_arr)
+        else:
+            corr_arr = np.corrcoef(arr.T)
+
+        corr = pd.DataFrame(corr_arr, index=clean_window.columns, columns=clean_window.columns)
         corr = corr.dropna(axis=0, how="all").dropna(axis=1, how="all")
         return corr.astype("float32")
 

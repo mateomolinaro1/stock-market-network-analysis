@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Optional, Sequence
 import logging
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -150,16 +151,22 @@ class AdaptiveTimeSeriesFeatureExtractor:
         asset_returns = self._prepare_frame(asset_returns)
         rows: Dict[pd.Timestamp, Dict[str, float]] = {}
 
+        # Pre-process optional series once — avoid repeated copy+sort+cast inside the loop
+        mkt_prepared = self._clean_series(market_returns)
+        rf_prepared = self._clean_series(risk_free_returns)
+
         total = max(0, len(asset_returns) - self.lookback)
         log_every = max(1, total // 10) if total else 1
         logger.info("Starting adaptive TS features: %s dates, lookback=%s, windows=%s", total, self.lookback, self.windows)
 
+        ref_index = asset_returns.index
         for i in range(self.lookback, len(asset_returns)):
-            date = asset_returns.index[i]
+            date = ref_index[i]
             window_assets = asset_returns.iloc[i - self.lookback:i]
-            market_series = self._slice_optional_series(market_returns, asset_returns.index, i)
-            rf_series = self._slice_optional_series(risk_free_returns, asset_returns.index, i)
-            volume_window = self._slice_optional_frame(volumes, asset_returns.index, i)
+            window_dates = ref_index[i - self.lookback:i]
+            market_series = mkt_prepared.reindex(window_dates) if mkt_prepared is not None else None
+            rf_series = rf_prepared.reindex(window_dates) if rf_prepared is not None else None
+            volume_window = self._slice_optional_frame(volumes, ref_index, i)
 
             rows[date] = self.transform(window_assets, market_series, rf_series, volume_window)
 
@@ -206,17 +213,25 @@ class AdaptiveTimeSeriesFeatureExtractor:
             if len(m) < max(2, int(w * self.min_obs_ratio)):
                 continue
 
-            features[f"mkt_return{suffix}"] = self._compound_return(m)
-            features[f"mkt_mean_return{suffix}"] = float(m.mean())
-            features[f"mkt_vol{suffix}"] = float(m.std(ddof=1) * sqrt_ann)
+            m_arr = m.to_numpy(dtype=float)
+
+            # Compute wealth path once — reused for compound return, all drawdown
+            # features and drawdown speed instead of calling _wealth() three times.
+            wealth = np.cumprod(1.0 + m_arr)
+            cummax = np.maximum.accumulate(wealth)
+            dd = wealth / cummax - 1.0
+
+            features[f"mkt_return{suffix}"] = float(wealth[-1] - 1.0)
+            features[f"mkt_mean_return{suffix}"] = float(m_arr.mean())
+            features[f"mkt_vol{suffix}"] = float(m_arr.std(ddof=1) * sqrt_ann)
             features[f"mkt_downside_vol{suffix}"] = self._downside_vol(m, sqrt_ann)
-            features[f"mkt_drawdown{suffix}"] = self._current_drawdown(m)
-            features[f"mkt_max_drawdown{suffix}"] = self._max_drawdown(m)
-            features[f"mkt_drawdown_speed{suffix}"] = self._drawdown_speed(m)
-            features[f"mkt_var_05{suffix}"] = float(m.quantile(0.05))
+            features[f"mkt_drawdown{suffix}"] = float(dd[-1])
+            features[f"mkt_max_drawdown{suffix}"] = float(dd.min())
+            features[f"mkt_drawdown_speed{suffix}"] = float(dd[-1] - dd[-2]) if len(dd) >= 2 else np.nan
+            features[f"mkt_var_05{suffix}"] = float(np.percentile(m_arr, 5))
             features[f"mkt_cvar_05{suffix}"] = self._cvar(m, 0.05)
-            features[f"mkt_hit_ratio{suffix}"] = float((m > 0).mean())
-            features[f"mkt_abs_return_last{suffix}"] = float(abs(m.iloc[-1]))
+            features[f"mkt_hit_ratio{suffix}"] = float((m_arr > 0).mean())
+            features[f"mkt_abs_return_last{suffix}"] = float(abs(m_arr[-1]))
 
             if self.include_distribution_features and len(m) >= 5:
                 features[f"mkt_skew{suffix}"] = float(m.skew())
@@ -245,21 +260,31 @@ class AdaptiveTimeSeriesFeatureExtractor:
         out[f"cs_return_p10_last{suffix}"] = float(last.quantile(0.10)) if len(last) else np.nan
         out[f"cs_return_p90_last{suffix}"] = float(last.quantile(0.90)) if len(last) else np.nan
 
-        asset_cumret = returns.apply(self._compound_return, axis=0)
-        out[f"cs_avg_asset_return{suffix}"] = float(asset_cumret.mean())
-        out[f"cs_std_asset_return{suffix}"] = float(asset_cumret.std(ddof=1))
-        out[f"cs_worst_asset_return{suffix}"] = float(asset_cumret.min())
-        out[f"cs_best_asset_return{suffix}"] = float(asset_cumret.max())
+        # Vectorized over all assets simultaneously — avoids apply() calling a Python
+        # function once per column (1000+ calls per window per date).
+        # NaN filled with 0 for compounding (stocks already filtered by _drop_sparse_assets).
+        r = returns.to_numpy(dtype=float)           # (T, N)
+        r_filled = np.where(np.isnan(r), 0.0, r)   # (T, N)
 
-        asset_vol = returns.std(axis=0, ddof=1) * sqrt_ann
-        out[f"cs_avg_asset_vol{suffix}"] = float(asset_vol.mean())
-        out[f"cs_std_asset_vol{suffix}"] = float(asset_vol.std(ddof=1))
-        out[f"cs_max_asset_vol{suffix}"] = float(asset_vol.max())
+        asset_cumret = np.prod(1.0 + r_filled, axis=0) - 1.0
+        out[f"cs_avg_asset_return{suffix}"] = float(np.mean(asset_cumret))
+        out[f"cs_std_asset_return{suffix}"] = float(np.std(asset_cumret, ddof=1)) if len(asset_cumret) > 1 else np.nan
+        out[f"cs_worst_asset_return{suffix}"] = float(np.min(asset_cumret))
+        out[f"cs_best_asset_return{suffix}"] = float(np.max(asset_cumret))
 
-        asset_mdd = returns.apply(self._max_drawdown, axis=0)
-        out[f"cs_avg_asset_max_drawdown{suffix}"] = float(asset_mdd.mean())
-        out[f"cs_worst_asset_max_drawdown{suffix}"] = float(asset_mdd.min())
-        out[f"cs_share_assets_in_drawdown{suffix}"] = float((returns.apply(self._current_drawdown, axis=0) < 0).mean())
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Degrees of freedom <= 0", category=RuntimeWarning)
+            asset_vol = np.nanstd(r, axis=0, ddof=1) * sqrt_ann
+        out[f"cs_avg_asset_vol{suffix}"] = float(np.nanmean(asset_vol))
+        out[f"cs_std_asset_vol{suffix}"] = float(np.nanstd(asset_vol, ddof=1)) if len(asset_vol) > 1 else np.nan
+        out[f"cs_max_asset_vol{suffix}"] = float(np.nanmax(asset_vol))
+
+        wealth = np.cumprod(1.0 + r_filled, axis=0)            # (T, N)
+        cummax = np.maximum.accumulate(wealth, axis=0)          # (T, N)
+        dd = wealth / cummax - 1.0                              # (T, N)
+        out[f"cs_avg_asset_max_drawdown{suffix}"] = float(np.mean(dd.min(axis=0)))
+        out[f"cs_worst_asset_max_drawdown{suffix}"] = float(np.min(dd.min(axis=0)))
+        out[f"cs_share_assets_in_drawdown{suffix}"] = float(np.mean(dd[-1] < 0))
         return out
 
     def _volume_features(self, volumes: pd.DataFrame, suffix: str) -> Dict[str, float]:

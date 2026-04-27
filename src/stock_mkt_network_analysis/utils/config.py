@@ -6,6 +6,8 @@ from typing import Any, List, Dict, Tuple
 
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,9 @@ class Config:
         self.scoring_metric: str = "roc_auc"
         self.load_or_compute_cv: str = "compute"
         self.save_cv: bool = False
+        self.halflife_corr: Optional[int] = None
+        self.feature_modes: List[str] = ["all"]
+        self.expanding_or_rolling: str = "rolling"
 
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
@@ -72,7 +77,11 @@ class Config:
         for entry in raw:
             cls = Config._MODEL_REGISTRY[entry["model"]]
             estimator = cls(**entry.get("model_kwargs", {}))
-            result.append((estimator, entry["param_grid"]))
+            param_grid = entry["param_grid"]
+            if entry.get("scale", False):
+                estimator = Pipeline([("scaler", StandardScaler()), ("clf", estimator)])
+                param_grid = [{f"clf__{k}": v for k, v in p.items()} for p in param_grid]
+            result.append((estimator, param_grid))
         return result
 
     def _load_run_pipeline_config(self)->None:
@@ -141,3 +150,9 @@ class Config:
                 self.load_or_compute_cv = forecasting.get("LOAD_OR_COMPUTE_CV")
             if forecasting.get("SAVE_CV") is not None:
                 self.save_cv = forecasting.get("SAVE_CV")
+            if forecasting.get("HALFLIFE_CORR") is not None:
+                self.halflife_corr = forecasting.get("HALFLIFE_CORR")
+            if forecasting.get("FEATURE_MODES") is not None:
+                self.feature_modes = forecasting.get("FEATURE_MODES")
+            if forecasting.get("EXPANDING_OR_ROLLING") is not None:
+                self.expanding_or_rolling = forecasting.get("EXPANDING_OR_ROLLING")

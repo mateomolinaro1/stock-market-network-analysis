@@ -1,45 +1,47 @@
-from stock_mkt_network_analysis.utils.config import Config
-from stock_mkt_network_analysis.data.data_manager import DataManager
-from stock_mkt_network_analysis.analytics.analytics import Analytics
-from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
-from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
 from dotenv import load_dotenv
 import logging
 import sys
 
-# Config
-load_dotenv()
-config = Config()
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-        level=logging.INFO,
-        stream=sys.stdout,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
+from stock_mkt_network_analysis.utils.config import Config
+from stock_mkt_network_analysis.data.data_manager import DataManager
+from stock_mkt_network_analysis.analytics.analytics import Analytics
+from stock_mkt_network_analysis.experiments.run_wf_cv import build_feature_pipeline, run_cv
 
-# Data
+load_dotenv()
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# -------------------------------------------------------------
+# Config & data
+# -------------------------------------------------------------
+config = Config()
 data_manager = DataManager(config=config)
 data_manager.load_data()
 
-# Analytics
+# -------------------------------------------------------------
+# Shared feature pipeline  (correlation cache built once here,
+# reused by both CV and Analytics — no redundant recomputation)
+# -------------------------------------------------------------
+logger.info("Precomputing feature pipeline cache...")
+feature_pipeline = build_feature_pipeline(config)
+feature_pipeline.precompute_cache(
+    returns=data_manager.network_returns,
+    market_returns=data_manager.mkt_returns,
+    risk_free_returns=data_manager.rf_returns,
+)
+logger.info("Feature pipeline cache precomputed successfully")
+
+######################################################
+### CV part ##########################################
+######################################################
+run_cv(data_manager, feature_pipeline, config)
+
+######################################################
+### Analytics ########################################
+######################################################
 an = Analytics(config=config, data=data_manager)
-an.get_analytics()
-
-# Correlation
-estimator = RollingCorrelationEstimator(
-    lookback=config.target_variable_rolling_window
-)
-corr_cache = estimator.compute_rolling(data_manager.asset_returns)
-logger.info(f"Computed {len(corr_cache)} rolling correlation matrices")
-
-sample_date = list(corr_cache.keys())[len(corr_cache) // 2]
-sample_corr = corr_cache[sample_date]
-logger.info(f"Sample correlation matrix at {sample_date}: shape={sample_corr.shape}")
-
-# Graph
-builder = ThresholdGraphBuilder(use_absolute_threshold=True, keep_sign=True)
-sample_graph = builder.build(corr=sample_corr, threshold=0.75)
-logger.info(
-    f"Graph at {sample_date}: {sample_graph.number_of_nodes()} nodes, "
-    f"{sample_graph.number_of_edges()} edges"
-)
+an.get_analytics(corr_cache=feature_pipeline._corr_cache)

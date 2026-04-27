@@ -7,7 +7,7 @@ import logging
 import pandas as pd
 
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
-from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
+from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor, NodeLevelNetworkFeatureExtractor
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
 from stock_mkt_network_analysis.time_series.adaptive_time_series_feature_extractor import (
     AdaptiveTimeSeriesFeatureExtractor,
@@ -125,10 +125,21 @@ class RollingNetworkFeaturePipeline:
 
         return network_features.add_prefix("net_").join(ts_features.add_prefix("ts_"), how="inner")
 
+    @staticmethod
+    def _filter_by_mode(features: pd.DataFrame, mode: str) -> pd.DataFrame:
+        if mode == "all" or features.empty:
+            return features
+        if mode == "ts":
+            return features[[c for c in features.columns if c.startswith("ts_")]]
+        if mode == "network":
+            return features[[c for c in features.columns if c.startswith("net_")]]
+        raise ValueError(f"Unknown feature mode: {mode!r}. Expected 'all', 'ts', or 'network'.")
+
     def make_features(
         self,
         returns: pd.DataFrame,
         threshold: float,
+        mode: str = "all",
     ) -> pd.DataFrame:
         """
         Build rolling features for all eligible dates in returns.
@@ -151,13 +162,49 @@ class RollingNetworkFeaturePipeline:
             dates.append(date)
 
         network_features = pd.DataFrame(rows, index=pd.Index(dates, name="date"))
-        return self._combine_with_time_series_features(network_features, returns)
+        combined = self._combine_with_time_series_features(network_features, returns)
+        return self._filter_by_mode(combined, mode)
+
+    def compute_node_features(self, returns: pd.DataFrame, threshold: float) -> pd.DataFrame:
+        """
+        Compute per-node (stock-level) network metrics for every date in the correlation cache.
+
+        Reuses _corr_cache when available so correlation matrices are not recomputed.
+        Graphs are rebuilt from cached correlations (cheap: threshold mask only).
+
+        Returns a DataFrame with MultiIndex(date, stock_id) and one column per metric.
+        """
+        node_extractor = NodeLevelNetworkFeatureExtractor()
+
+        if self._corr_cache is not None:
+            corr_items = sorted(self._corr_cache.items())
+        else:
+            corr_items = sorted(self.correlation_estimator.compute_rolling(returns).items())
+
+        frames = []
+        for date, corr in corr_items:
+            if corr.empty:
+                continue
+            graph = self.graph_builder.build(corr, threshold)
+            node_df = node_extractor.transform(graph)
+            if node_df.empty:
+                continue
+            node_df.index.name = "stock_id"
+            node_df["date"] = date
+            frames.append(node_df.reset_index())
+
+        if not frames:
+            return pd.DataFrame()
+
+        result = pd.concat(frames, ignore_index=True)
+        return result.set_index(["date", "stock_id"])
 
     def make_features_for_dates(
         self,
         returns: pd.DataFrame,
         target_dates: Sequence[pd.Timestamp],
         threshold: float,
+        mode: str = "all",
     ) -> pd.DataFrame:
         """
         Build features only for specific dates.
@@ -182,4 +229,5 @@ class RollingNetworkFeaturePipeline:
             dates.append(date)
 
         network_features = pd.DataFrame(rows, index=pd.Index(dates, name="date"))
-        return self._combine_with_time_series_features(network_features, returns, target_dates)
+        combined = self._combine_with_time_series_features(network_features, returns, target_dates)
+        return self._filter_by_mode(combined, mode)

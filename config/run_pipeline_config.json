@@ -17,8 +17,8 @@
     "DATA_FREQ": "d",
     "TARGET_VARIABLE": "dummy_forward_max_drawdown",
     "TARGET_VARIABLE_ROLLING_WINDOW": 21,
-    "QUANTILE_FOR_DUMMY": 0.10,
-    "RETURNS_TYPE": "idio",
+    "QUANTILE_FOR_DUMMY": 0.20,
+    "RETURNS_TYPE": "raw",
     "MKT_BENCHMARK_COLUMN": "Russell 1000",
     "LIMIT_FFILL_BETAS": 5,
     "LIMIT_FFILL_RF": 10
@@ -32,12 +32,16 @@
     "SCORING_METRIC": "pr_auc",
     "LOAD_OR_COMPUTE_CV": "compute",
     "SAVE_CV": true,
+    "HALFLIFE_CORR": 63,
+    "EXPANDING_OR_ROLLING": "expanding",
+    "FEATURE_MODES": ["ts", "network"],
     "THRESHOLD_GRID": [0.75],
     "MODEL_GRID": [
       {
         "model": "LogisticRegression",
-        "model_kwargs": {"solver": "liblinear", "class_weight": "balanced", "max_iter": 1000},
-        "param_grid": [{"C": 1.0}]
+        "scale": true,
+        "model_kwargs": {"solver": "saga", "l1_ratio": 1, "class_weight": "balanced", "max_iter": 2000},
+        "param_grid": [{"C": 0.1}]
       }
     ]
   }

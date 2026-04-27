@@ -6,6 +6,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import networkx as nx
+import networkx.algorithms.community as nx_community
 
 
 @dataclass
@@ -93,3 +94,75 @@ class BasicNetworkFeatureExtractor:
             "eig1": eig1,
             "eig1_ratio": eig1_ratio,
         }
+
+
+@dataclass
+class NodeLevelNetworkFeatureExtractor:
+    """
+    Per-node (stock-level) network metrics from a thresholded correlation graph.
+
+    Centrality measures use absolute edge weights because signed weights break
+    convergence guarantees for eigenvector centrality and distort PageRank.
+    The signed strength is kept separately for strategies that care about direction.
+    """
+
+    @staticmethod
+    def _abs_graph(graph: nx.Graph) -> nx.Graph:
+        """Return a copy of graph with all edge weights replaced by their absolute value."""
+        g = nx.Graph()
+        g.add_nodes_from(graph.nodes())
+        for u, v, d in graph.edges(data=True):
+            g.add_edge(u, v, weight=abs(d.get("weight", 0.0)))
+        return g
+
+    @staticmethod
+    def transform(graph: nx.Graph) -> pd.DataFrame:
+        """
+        Compute node-level metrics and return a DataFrame indexed by stock_id.
+
+        Columns
+        -------
+        degree            : unweighted degree
+        strength          : signed sum of edge weights
+        abs_strength      : sum of absolute edge weights
+        clustering        : local weighted clustering coefficient (abs weights)
+        eigenvector_centrality : eigenvector centrality (abs weights); NaN on non-convergence
+        pagerank          : PageRank (abs weights)
+        core_number       : k-core number (topology only)
+        community         : integer community label (greedy modularity, abs weights)
+        """
+        if graph.number_of_nodes() == 0:
+            return pd.DataFrame()
+
+        nodes = list(graph.nodes())
+        ag = NodeLevelNetworkFeatureExtractor._abs_graph(graph)
+
+        degree = dict(graph.degree())
+        strength = dict(graph.degree(weight="weight"))
+        abs_strength = dict(ag.degree(weight="weight"))
+        clustering = nx.clustering(ag, weight="weight")
+
+        try:
+            eig_cent = nx.eigenvector_centrality(ag, weight="weight", max_iter=500)
+        except nx.PowerIterationFailedConvergence:
+            eig_cent = {n: np.nan for n in nodes}
+
+        pagerank = nx.pagerank(ag, weight="weight")
+        core_number = nx.core_number(graph)
+
+        communities = nx_community.greedy_modularity_communities(ag, weight="weight")
+        community_map = {node: i for i, comm in enumerate(communities) for node in comm}
+
+        return pd.DataFrame(
+            {
+                "degree": degree,
+                "strength": strength,
+                "abs_strength": abs_strength,
+                "clustering": clustering,
+                "eigenvector_centrality": eig_cent,
+                "pagerank": pagerank,
+                "core_number": core_number,
+                "community": community_map,
+            },
+            index=pd.Index(nodes, name="stock_id"),
+        )

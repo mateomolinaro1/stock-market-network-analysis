@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.dummy import DummyClassifier
+from sklearn.pipeline import Pipeline
 import logging
 
 from stock_mkt_network_analysis.cv.folds import build_rolling_time_series_folds
@@ -28,6 +29,13 @@ from stock_mkt_network_analysis.utils.utils import align_x_y
 
 CVScheme = Literal["simple", "nested"]
 logger = logging.getLogger(__name__)
+
+
+def _model_name(model: Any) -> str:
+    """Return the classifier class name, unwrapping sklearn Pipeline if needed."""
+    if isinstance(model, Pipeline):
+        return type(model.steps[-1][1]).__name__
+    return type(model).__name__
 
 @dataclass
 class WalkForwardResult:
@@ -51,6 +59,9 @@ class SimpleRollingWalkForwardCV:
     val_size: int
     target_horizon: int = 0
     min_required_history: Optional[int] = None
+    feature_mode: str = "all"
+    expanding_or_rolling: str = "rolling"
+    evict_cache: bool = True
 
     def run(
         self,
@@ -86,6 +97,15 @@ class SimpleRollingWalkForwardCV:
 
         all_dates = returns.index
 
+        # Incremental feature cache: avoids rebuilding large DataFrames from scratch each step.
+        # Keyed by threshold; mode is constant per runner so no need to key by it.
+        # At each step we only call make_features for the *new* dates entering the window,
+        # then append (and for rolling, prune) the stored DataFrame.
+        _x_train: Dict[float, pd.DataFrame] = {}
+        _x_refit: Dict[float, pd.DataFrame] = {}
+        _prev_train_end: int = -1
+        _prev_val_end: int = -1
+
         for i, t_test in enumerate(outer_test_dates):
             logger.info(f"Processing test date {t_test} ({i+1}/{len(outer_test_dates)})")
             if t_test not in returns.index or t_test not in target.index:
@@ -103,41 +123,90 @@ class SimpleRollingWalkForwardCV:
             val_end = test_loc - self.target_horizon
             val_start = val_end - self.val_size
             train_end = val_start
-            train_start = train_end - self.outer_train_size
+            if self.expanding_or_rolling == "expanding":
+                train_start = 0
+            else:
+                train_start = train_end - self.outer_train_size
 
-            if train_start < 0:
+            if train_start < 0 or train_end <= train_start:
                 continue
 
             train_dates = all_dates[train_start:train_end]
             val_dates = all_dates[val_start:val_end]
+            refit_dates = all_dates[train_start:val_end]
             test_dates = pd.Index([t_test])
 
+            # ── Update incremental feature caches (once per test date, per threshold) ──
+            for c in self.threshold_grid:
+                # Train cache
+                if c in _x_train and _prev_train_end >= 0:
+                    new_train = all_dates[_prev_train_end:train_end]
+                    if len(new_train) > 0:
+                        new_X = self.feature_pipeline.make_features(
+                            returns=returns.loc[new_train], threshold=c, mode=self.feature_mode,
+                        )
+                        if not new_X.empty:
+                            _x_train[c] = pd.concat([_x_train[c], new_X])
+                    if self.expanding_or_rolling == "rolling":
+                        _x_train[c] = _x_train[c].loc[_x_train[c].index >= train_dates[0]]
+                else:
+                    _x_train[c] = self.feature_pipeline.make_features(
+                        returns=returns.loc[train_dates], threshold=c, mode=self.feature_mode,
+                    )
+
+                # Refit cache (train + val window)
+                if c in _x_refit and _prev_val_end >= 0:
+                    new_refit = all_dates[_prev_val_end:val_end]
+                    if len(new_refit) > 0:
+                        new_Xr = self.feature_pipeline.make_features(
+                            returns=returns.loc[new_refit], threshold=c, mode=self.feature_mode,
+                        )
+                        if not new_Xr.empty:
+                            _x_refit[c] = pd.concat([_x_refit[c], new_Xr])
+                    if self.expanding_or_rolling == "rolling":
+                        _x_refit[c] = _x_refit[c].loc[_x_refit[c].index >= refit_dates[0]]
+                else:
+                    _x_refit[c] = self.feature_pipeline.make_features(
+                        returns=returns.loc[refit_dates], threshold=c, mode=self.feature_mode,
+                    )
+
+            _prev_train_end = train_end
+            _prev_val_end = val_end
+
+            # ── Val and test features: small windows, always compute fresh ──────────
+            val_cache: Dict[float, tuple] = {}
+            test_cache: Dict[float, tuple] = {}
+            for c in self.threshold_grid:
+                X_val = self.feature_pipeline.make_features_for_dates(
+                    returns=returns.loc[returns.index <= val_dates[-1]],
+                    target_dates=val_dates, threshold=c, mode=self.feature_mode,
+                )
+                X_val, y_val = align_x_y(X_val, target.loc[val_dates])
+                val_cache[c] = (X_val, y_val)
+
+                X_test = self.feature_pipeline.make_features_for_dates(
+                    returns=returns.loc[returns.index <= t_test],
+                    target_dates=test_dates, threshold=c, mode=self.feature_mode,
+                )
+                X_test, y_test = align_x_y(X_test, target.loc[test_dates])
+                test_cache[c] = (X_test, y_test)
+
+            # ── Model selection: feature matrices looked up from cache, not recomputed ──
             for base_model, param_grid in self.model_grid:
-                model_name = type(base_model).__name__
+                model_name = _model_name(base_model)
 
                 best_score = -np.inf
                 best_threshold = None
                 best_theta = None
 
                 for c in self.threshold_grid:
+                    X_train, y_train = align_x_y(_x_train[c], target.loc[train_dates])
+                    X_val, y_val = val_cache[c]
+
+                    if len(X_train) == 0 or len(X_val) == 0:
+                        continue
+
                     for theta in param_grid:
-                        X_train = self.feature_pipeline.make_features(
-                            returns=returns.loc[train_dates],
-                            threshold=c,
-                        )
-                        X_train, y_train = align_x_y(X_train, target.loc[train_dates])
-
-                        X_val = self.feature_pipeline.make_features_for_dates(
-                            returns=returns.loc[returns.index <= val_dates[-1]],
-                            target_dates=val_dates,
-                            threshold=c,
-                        )
-                        y_val = target.loc[val_dates]
-                        X_val, y_val = align_x_y(X_val, y_val)
-
-                        if len(X_train) == 0 or len(X_val) == 0:
-                            continue
-
                         if len(np.unique(y_train)) < 2:
                             fitted = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
                         else:
@@ -154,19 +223,19 @@ class SimpleRollingWalkForwardCV:
 
                 if best_threshold is None or best_theta is None:
                     logger.warning(f"No valid combo found for {model_name} at {t_test} — using DummyClassifier fallback.")
-                    refit_dates = all_dates[train_start:val_end]
-                    y_refit = target.loc[refit_dates].dropna()
-                    y_test = target.loc[test_dates].dropna()
-                    if len(y_refit) == 0 or len(y_test) == 0:
+                    y_refit_full = target.loc[refit_dates].dropna()
+                    y_test_full = target.loc[test_dates].dropna()
+                    if len(y_refit_full) == 0 or len(y_test_full) == 0:
                         continue
-                    dummy_X_refit = np.zeros((len(y_refit), 1))
-                    dummy_X_test = np.zeros((len(y_test), 1))
-                    final_model = DummyClassifier(strategy="most_frequent").fit(dummy_X_refit, y_refit)
+                    dummy_X_refit = np.zeros((len(y_refit_full), 1))
+                    dummy_X_test = np.zeros((len(y_test_full), 1))
+                    final_model = DummyClassifier(strategy="most_frequent").fit(dummy_X_refit, y_refit_full)
                     yhat_test = predict_positive_class_proba(final_model, dummy_X_test)
                     prediction_records.append({
                         "date": t_test,
                         "model": model_name,
-                        "y_true": int(y_test.iloc[0]),
+                        "feature_mode": self.feature_mode,
+                        "y_true": int(y_test_full.iloc[0]),
                         "y_pred": float(yhat_test[0]),
                         "y_pred_binary": int(yhat_test[0] >= 0.5),
                         "best_threshold": float("nan"),
@@ -175,6 +244,7 @@ class SimpleRollingWalkForwardCV:
                     selection_records.append({
                         "date": t_test,
                         "model": model_name,
+                        "feature_mode": self.feature_mode,
                         "scheme": "simple",
                         "train_start": train_dates[0],
                         "train_end": train_dates[-1],
@@ -183,26 +253,12 @@ class SimpleRollingWalkForwardCV:
                         "best_threshold": float("nan"),
                         "best_theta": None,
                         "validation_score": float("nan"),
-                        "n_refit_obs": int(len(y_refit)),
+                        "n_refit_obs": int(len(y_refit_full)),
                     })
                     continue
 
-                refit_dates = all_dates[train_start:val_end]
-
-                X_refit = self.feature_pipeline.make_features(
-                    returns=returns.loc[refit_dates],
-                    threshold=best_threshold,
-                )
-                y_refit = target.loc[refit_dates]
-                X_refit, y_refit = align_x_y(X_refit, y_refit)
-
-                X_test = self.feature_pipeline.make_features_for_dates(
-                    returns=returns.loc[returns.index <= t_test],
-                    target_dates=test_dates,
-                    threshold=best_threshold,
-                )
-                y_test = target.loc[test_dates]
-                X_test, y_test = align_x_y(X_test, y_test)
+                X_refit, y_refit = align_x_y(_x_refit[best_threshold], target.loc[refit_dates])
+                X_test, y_test = test_cache[best_threshold]
 
                 if len(X_refit) == 0 or len(X_test) == 0:
                     continue
@@ -219,6 +275,7 @@ class SimpleRollingWalkForwardCV:
                     {
                         "date": t_test,
                         "model": model_name,
+                        "feature_mode": self.feature_mode,
                         "y_true": int(y_test.iloc[0]),
                         "y_pred": float(yhat_test[0]),
                         "y_pred_binary": int(yhat_test[0] >= 0.5),
@@ -231,6 +288,7 @@ class SimpleRollingWalkForwardCV:
                     {
                         "date": t_test,
                         "model": model_name,
+                        "feature_mode": self.feature_mode,
                         "scheme": "simple",
                         "train_start": train_dates[0],
                         "train_end": train_dates[-1],
@@ -243,22 +301,24 @@ class SimpleRollingWalkForwardCV:
                     }
                 )
 
-            self.feature_pipeline.evict_before(train_dates[0])
+            if self.evict_cache:
+                self.feature_pipeline.evict_before(train_dates[0])
 
-        model_names = [type(base_model).__name__ for base_model, _ in self.model_grid]
+        model_names = [_model_name(base_model) for base_model, _ in self.model_grid]
         full_index = pd.MultiIndex.from_product(
-            [outer_test_dates, model_names], names=["date", "model"]
+            [outer_test_dates, model_names, [self.feature_mode]],
+            names=["date", "model", "feature_mode"],
         )
 
         predictions = (
             pd.DataFrame(prediction_records)
-            .set_index(["date", "model"])
+            .set_index(["date", "model", "feature_mode"])
             .reindex(full_index)
             .sort_index()
         )
         selection_history = (
             pd.DataFrame(selection_records)
-            .set_index(["date", "model"])
+            .set_index(["date", "model", "feature_mode"])
             .reindex(full_index)
             .sort_index()
         )

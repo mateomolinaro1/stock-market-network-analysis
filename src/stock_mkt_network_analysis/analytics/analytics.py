@@ -1,6 +1,10 @@
 """
 A module for performing various analytics on stock market data.
 """
+from typing import Dict, Optional
+
+import pandas as pd
+
 from stock_mkt_network_analysis.data.data_manager import DataManager
 from stock_mkt_network_analysis.utils.market_metric_utils import Metrics
 from stock_mkt_network_analysis.analytics.visualization import Vizu
@@ -22,17 +26,23 @@ class Analytics:
         self.rolling_raw_target_variable = self.data.rolling_raw_target_variable
         self.mkt_cumulative_returns = None
 
-    def get_analytics(self)->None:
+    def get_analytics(
+        self,
+        corr_cache: Optional[Dict[pd.Timestamp, pd.DataFrame]] = None,
+    ) -> None:
         """
         Complete the analytics pipeline by computing necessary metrics and preparing data for visualization.
-        :return:
+
+        Pass corr_cache (e.g. feature_pipeline._corr_cache) to skip rolling-correlation
+        recomputation inside the network animations — the dominant cost.
         """
         self._get_data_for_analytics()
         self._get_plot_target_variable()
         self._get_plot_target_variable_with_cum_ret()
         self._get_plot_raw_target_variable()
+        self._get_network_animations(corr_cache=corr_cache)
 
-    def get_network_animations(
+    def _get_network_animations(
             self,
             start_date: str | None = None,
             end_date: str | None = None,
@@ -49,11 +59,14 @@ class Analytics:
             random_swaps_per_edge: int = 5,
             rich_club_xscale: str = "linear",
             rich_club_yscale: str = "linear",
+            corr_cache: Optional[Dict[pd.Timestamp, pd.DataFrame]] = None,
     ) -> dict[str, object]:
         """
         Generate animated diagnostics for rolling correlation networks.
 
         If no period is provided, animations are generated on all eligible dates.
+        corr_cache: pre-computed {date: corr_matrix} dict; when provided, rolling
+        correlations are not recomputed (saves the dominant runtime cost).
         """
         if threshold is None and not self.config.threshold_grid:
             raise ValueError("A threshold must be provided when config.threshold_grid is empty.")
@@ -61,10 +74,13 @@ class Analytics:
         threshold = threshold if threshold is not None else self.config.threshold_grid[0]
 
         animator = RollingNetworkAnimator(
-            correlation_estimator=RollingCorrelationEstimator(lookback=self.config.lookback_corr),
+            correlation_estimator=RollingCorrelationEstimator(
+                lookback=self.config.lookback_corr, halflife=self.config.halflife_corr
+            ),
             graph_builder=ThresholdGraphBuilder(use_absolute_threshold=True, keep_sign=True),
             threshold=threshold,
             figures_dir=self.config.ROOT_DIR / "outputs" / "figures",
+            corr_cache=corr_cache,
         )
 
         returns = self.data.network_returns

@@ -54,6 +54,8 @@ def compute_cache_key(config) -> str:
         "THRESHOLD_GRID": forecasting.get("THRESHOLD_GRID"),
         "SCORING_METRIC": forecasting.get("SCORING_METRIC"),
         "MODEL_GRID": forecasting.get("MODEL_GRID"),
+        "HALFLIFE_CORR": forecasting.get("HALFLIFE_CORR"),
+        "EXPANDING_OR_ROLLING": forecasting.get("EXPANDING_OR_ROLLING"),
     }
 
     canonical = json.dumps(fields, sort_keys=True)
