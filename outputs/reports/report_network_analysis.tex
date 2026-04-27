@@ -1,0 +1,363 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[table]{xcolor}
+\usepackage{array}
+\usepackage{adjustbox}
+\usepackage{float}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{placeins}
+\usepackage{amsmath}
+\usepackage{rotating}
+\usepackage{siunitx}
+\usepackage[a4paper, left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm]{geometry}
+\usepackage{longtable}
+\usepackage{comment}
+
+\title{Stock Market Network Analysis for Crisis Prediction}
+\author{Matéo Molinaro}
+\date{2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper investigates whether the topology of stock correlation networks conveys predictive information about future equity market crises. We model the cross-sectional dependence structure of large-cap U.S. equities as a dynamic weighted graph, constructed from rolling Ledoit--Wolf shrinkage correlation matrices with exponential time-weighting, and threshold these matrices to retain economically meaningful co-movement links. We extract two complementary feature sets: graph-level network statistics summarising the global topology at each date, and time-series features capturing the dynamics of the market return distribution over multiple horizons. These features serve as inputs to a binary classification framework that predicts whether the forward 21-day maximum drawdown will exceed a crisis threshold, evaluated strictly out-of-sample through an expanding walk-forward cross-validation scheme. In addition to the predictive exercise, we construct a panel of per-stock network centrality measures ---degree, strength, clustering, eigenvector centrality, PageRank, and community membership--- that can serve as the basis for cross-sectional investment strategies. Our methodology provides a replicable, modular pipeline for translating network topology into actionable financial signals.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+The 2008--2009 Global Financial Crisis and subsequent episodes of market stress demonstrated that equity market crashes are not merely idiosyncratic shocks but often the result of systemic contagion propagating through a densely connected financial network. Understanding the structure of these connections---and how it evolves as a crisis approaches---has become a central question in both academic finance and risk management.\\
+
+This project addresses that question through the lens of graph theory and machine learning. We represent the U.S. large-cap equity market as a dynamic weighted network whose nodes are individual stocks and whose edges encode pairwise return correlations. At each point in time, we characterise the global topology of this network through a set of scalar statistics---density, average degree, clustering, connectedness, and spectral properties---and ask whether these statistics, alone or combined with time-series features of the return distribution, can help predict the onset of a market drawdown.\\
+
+The empirical exercise is organised into three main components. First, we construct a daily rolling correlation network for the Russell 1000 universe using a robust estimator that combines Ledoit--Wolf shrinkage with exponential time-weighting. The resulting matrices are thresholded to form sparse graphs that emphasise the strongest pairwise dependences while preserving the sign of the correlation.\\
+
+Second, we build two complementary feature sets. Network features capture the global topology of the correlation graph at each date: density, degree distribution moments, weighted clustering, the ratio of the largest connected component, and the leading eigenvalue of the correlation matrix. Time-series features capture the dynamics of the equity market at multiple horizons: cumulative market returns, volatility, drawdown path metrics, cross-sectional dispersion of asset returns and volatilities, and market breadth indicators. We compare these feature sets individually and in combination through a feature-mode ablation study.\\
+
+Third, we frame crisis prediction as a binary classification problem. The target variable is an indicator that equals one whenever the forward 21-day maximum drawdown exceeds the empirical 20th percentile of the drawdown distribution, and zero otherwise. Because positive (crisis) observations are naturally rare, we adopt precision-recall area under the curve (PR-AUC) as our primary evaluation metric and calibrate classifiers accordingly. Out-of-sample performance is measured through an expanding walk-forward cross-validation scheme that mirrors realistic portfolio management constraints.\\
+
+Beyond the predictive exercise, we construct a rich panel of node-level network metrics---per-stock degree, strength, clustering, eigenvector centrality, PageRank, k-core number, and community membership---updated at daily frequency. This panel can serve directly as an input to cross-sectional strategies that exploit time-varying differences in individual stocks' systemic importance.\\
+
+The remainder of the paper is organized as follows. Section~\ref{sec:data} describes the data sources and the construction of the investment universe. Section~\ref{sec:methodology} details the full methodology, from correlation estimation to walk-forward evaluation. Section~\ref{sec:node_features} discusses the node-level network panel. Section~\ref{sec:results} presents the empirical results. Section~\ref{sec:conclusion} concludes.
+
+
+\section{Data}
+\label{sec:data}
+
+\subsection{Investment universe}
+
+The empirical analysis focuses on the Russell 1000 universe, which comprises the 1,000 largest U.S. publicly traded companies by market capitalisation. Daily price and return data are sourced from the Wharton Research Data Services (WRDS) database. The universe is dynamic: constituents are those qualifying at each observation date, so survivorship bias is mitigated by design.\\
+
+We denote by $\mathcal{U}_t$ the set of stocks available at date $t$. The asset return matrix at date $t$ is $\mathbf{R}_t \in \mathbb{R}^{|\mathcal{U}_t|}$, where each entry is the daily log-return of the corresponding stock. We use raw returns as the base series; an idiosyncratic return variant (residuals from a one-factor market model) is available as an alternative specification.
+
+\subsection{Benchmark and risk-free rate}
+
+The market benchmark is the Russell 1000 index return, used as the market factor in beta estimation and as the primary benchmark for evaluating dynamic strategies. The daily risk-free rate is sourced from WRDS and proxies the one-month Treasury bill rate converted to daily frequency.
+
+\subsection{Target variable construction}
+\label{sec:target}
+
+The target variable is a forward-looking binary indicator designed to flag the onset of a market drawdown episode. For each date $t$, we compute the rolling maximum drawdown of the Russell 1000 index return over the subsequent $H = 21$ trading days:
+\begin{equation}
+    \text{MDD}_{t}^{H} = \min_{s \in [t, t+H]} \left( \frac{W_s}{M_s} - 1 \right),
+\end{equation}
+where $W_s = \prod_{u=t}^{s}(1 + R_u^{\text{mkt}})$ is the wealth path and $M_s = \max_{u \in [t,s]} W_u$ is the running maximum. This quantity is non-positive by construction.\\
+
+The binary target is then defined as:
+\begin{equation}
+    y_t = \mathbf{1}\!\left\{ \text{MDD}_{t}^{H} \leq q_{\alpha}\!\left(\text{MDD}^{H}\right) \right\},
+\end{equation}
+where $q_{\alpha}$ denotes the $\alpha$-th empirical quantile of the drawdown distribution computed over the full sample, with $\alpha = 0.20$ in our baseline specification. Hence $y_t = 1$ marks dates whose subsequent 21-day window realises one of the worst 20\% of drawdown episodes---our operational definition of a market crisis.\\
+
+A critical design choice is that $y_t$ is strictly forward-looking: the drawdown is computed over the window $[t, t+H]$ and therefore does not use any return information available at or before $t$. This ensures no look-ahead bias enters the feature-target alignment.
+
+
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Robust rolling correlation estimation}
+
+For each target date $t$, we estimate the pairwise return correlation matrix $\boldsymbol{\Sigma}_t$ over a rolling lookback window of $\tau = 252$ trading days. To produce a robust, well-conditioned estimate, we combine two techniques: exponential time-weighting and Ledoit--Wolf analytical shrinkage.\\
+
+\noindent\textbf{Exponential weighting.} Recent observations are assigned higher weight than distant ones. For a half-life of $\lambda = 63$ trading days, the weight of observation $t - k$ (for $k = 0, 1, \ldots, \tau-1$) is:
+\begin{equation}
+    w_k = \frac{\delta^k}{\sum_{j=0}^{\tau-1} \delta^j}, \quad \delta = 0.5^{1/\lambda},
+\end{equation}
+so that the most recent observation receives the highest weight and the weight of an observation $\lambda$ days in the past is half that of today.\\
+
+\noindent\textbf{Weighted covariance.} Let $\bar{\mathbf{r}}_w = \sum_k w_k \mathbf{r}_{t-k}$ be the exponentially weighted mean return. We form the de-meaned matrix $\tilde{\mathbf{R}} \in \mathbb{R}^{\tau \times N}$ and the rescaled matrix:
+\begin{equation}
+    \mathbf{Z} = \tilde{\mathbf{R}} \odot \sqrt{w \cdot \tau},
+\end{equation}
+where $\odot$ denotes element-wise multiplication along the time dimension. The identity $\frac{1}{\tau}\mathbf{Z}^\top\mathbf{Z} = \mathbf{S}_w$ yields the exponentially weighted sample covariance $\mathbf{S}_w$ in a form suitable for scikit-learn's \texttt{LedoitWolf} estimator.\\
+
+\noindent\textbf{Ledoit--Wolf shrinkage.} We fit the Ledoit--Wolf estimator \cite{ledoit2004} to $\mathbf{Z}$ with \texttt{assume\_centered=True}, obtaining a shrinkage covariance $\hat{\boldsymbol{\Sigma}}_w^{\text{LW}}$. The corresponding correlation matrix is:
+\begin{equation}
+    \hat{\rho}_{ij} = \frac{\hat{\sigma}_{ij}^{\text{LW}}}{\sqrt{\hat{\sigma}_{ii}^{\text{LW}} \cdot \hat{\sigma}_{jj}^{\text{LW}}}}.
+\end{equation}
+Combining exponential weighting with Ledoit--Wolf shrinkage yields an estimator that is simultaneously time-adaptive (it emphasises recent co-movement) and statistically regularised (it avoids the rank deficiency of naive sample correlations when $N \approx \tau$).
+
+\subsection{Threshold graph construction}
+
+Given the estimated correlation matrix $\hat{\boldsymbol{\rho}}_t \in [-1, 1]^{N \times N}$, we construct a weighted undirected graph $G_t = (\mathcal{V}_t, \mathcal{E}_t, \mathbf{W}_t)$ where:
+\begin{itemize}
+    \item $\mathcal{V}_t = \mathcal{U}_t$ is the node set (one node per stock);
+    \item $(i,j) \in \mathcal{E}_t \iff |\hat{\rho}_{ij,t}| \geq \tau$, with $\tau = 0.75$ in our baseline;
+    \item $w_{ij,t} = \hat{\rho}_{ij,t}$ for $(i,j) \in \mathcal{E}_t$ (signed weights are retained).
+\end{itemize}
+
+Using absolute-value thresholding ensures that both strong positive and strong negative co-movements generate edges, while retaining the sign in the weight allows downstream graph metrics to distinguish stocks moving in concert from those moving in opposition. The threshold $\tau = 0.75$ is held fixed across the full sample; sensitivity analyses varying $\tau$ are available as an alternative configuration.\\
+
+Diagonal entries are set to zero before graph construction. The resulting adjacency matrix $\mathbf{A}_t$ is sparse by design: at $\tau = 0.75$, the majority of stock pairs have their edge removed, retaining only the most strongly co-moving pairs.
+
+\subsection{Graph-level network features}
+\label{sec:graph_features}
+
+At each date $t$ and threshold $\tau$, we extract a vector of scalar network statistics from $G_t$. These statistics summarise the global topology of the correlation network and are designed to be informative about regime shifts in the cross-sectional dependence structure.
+
+\begin{table}[H]
+\centering
+\caption{Graph-level network features extracted from the threshold correlation graph $G_t$.}
+\label{tab:net_features}
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{Feature} & \textbf{Definition} \\
+\midrule
+$n_{\text{nodes}}$ & Number of nodes (active stocks at date $t$) \\
+$n_{\text{edges}}$ & Number of edges (pairs with $|\hat\rho| \geq \tau$) \\
+Density & $2 |E| / (|V|(|V|-1))$, fraction of possible edges present \\
+$\bar{d}$, $\sigma_d$ & Mean and standard deviation of unweighted degree \\
+$\bar{d}_w$, $\sigma_{d_w}$ & Mean and standard deviation of weighted degree (strength) \\
+$\bar{w}$, $\sigma_w$, $w_{\max}$ & Mean, standard deviation, and maximum of edge weights \\
+$\bar{C}$ & Weighted average clustering coefficient \\
+LCC ratio & Fraction of nodes in the largest connected component \\
+$\bar{|\rho|}$, $\sigma_{|\rho|}$ & Mean and standard deviation of absolute off-diagonal correlations \\
+$\lambda_1$ & Leading eigenvalue of the correlation matrix \\
+$\lambda_1 / \sum_i \lambda_i$ & Variance explained by the first principal component \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several of these statistics have well-established economic interpretations in the context of systemic risk. The density and average degree measure how interconnected the market is: a denser network implies that shocks can propagate more broadly, consistent with elevated systemic risk \cite{billio2012}. The leading eigenvalue $\lambda_1$ captures the fraction of total variance attributable to the dominant market factor; a rising $\lambda_1$ signals increased co-movement across assets, which historically precedes market stress episodes \cite{laloux1999}. The largest connected component ratio quantifies what fraction of stocks remain linked when isolated nodes are removed; a near-unity ratio indicates that a single contagion pathway can reach virtually the entire market.
+
+\subsection{Time-series features}
+
+In addition to network topology, we extract a set of time-series features that characterise the dynamics of the market return distribution at multiple horizons. For a lookback of $\tau = 252$ days, three adaptive windows are derived: short ($w_1 \approx \tau/4 = 63$), medium ($w_2 \approx \tau/2 = 126$), and full ($w_3 = 252$).\\
+
+Features are organised into four groups:
+
+\noindent\textbf{Market-level dynamics.} For each window $w$, we compute the compound return, mean daily return, annualised volatility, annualised downside volatility, current and maximum drawdown, drawdown speed (day-over-day change), VaR$_{5\%}$, CVaR$_{5\%}$, the hit ratio (fraction of positive days), and the absolute return on the last observation. Distributional shape features (skewness and kurtosis) are added when $w \geq 5$.
+
+\noindent\textbf{Cross-sectional asset dynamics.} We summarise the cross-section of individual stock returns and volatilities: market breadth (fraction of stocks with positive/negative return on the last day), the dispersion of last-day returns ($\sigma_{\text{cs}}$), the 10th and 90th percentiles of the cross-sectional return distribution, average and worst compound asset return, average/maximum annualised asset volatility, average and worst asset maximum drawdown, and the share of assets currently in drawdown.
+
+\noindent\textbf{Volume features.} When volume data is available, we compute the aggregate market volume growth rate relative to the window mean and the volatility of daily volume changes.
+
+\noindent\textbf{Ratio and delta features.} Cross-horizon ratios ($w_1 / w_3$) of volatility and downside volatility, and differences ($w_1 - w_3$) of compound return, maximum drawdown, and breadth, capture regime acceleration or deceleration.\\
+
+All features are constructed without look-ahead: the feature vector for date $t$ uses only returns observed strictly before $t$. The resulting feature matrix has one row per eligible date and $O(50)$ columns per horizon, yielding approximately $150$--$200$ time-series features in total.
+
+\subsection{Walk-forward cross-validation framework}
+\label{sec:wfcv}
+
+Model evaluation follows a strict out-of-sample expanding walk-forward protocol, designed to mimic realistic portfolio management constraints. The timeline is partitioned as follows:
+
+\begin{itemize}
+    \item \textbf{Burn-in}: the first $\tau_{\text{corr}} + \tau_{\text{train}} + \tau_{\text{val}}$ dates are consumed by the correlation lookback, the initial training window, and the initial validation window, and are excluded from out-of-sample evaluation.
+    \item \textbf{Training window}: at each outer step $s$, the training set spans dates from the start of the sample up to the current date $t_s$ (expanding window), with $\tau_{\text{train}} = 252$ as the minimum training size.
+    \item \textbf{Validation window}: immediately following the training window, a fixed-length validation block of $\tau_{\text{val}} = 42$ trading days is used for hyperparameter selection via grid search.
+    \item \textbf{Test (OOS) date}: after validation, the model is refit on the combined train+validation data and generates one prediction for date $t_s + \tau_{\text{val}} + 1$. The outer step then advances by one day.
+\end{itemize}
+
+% [Figure placeholder: expanding walk-forward cross-validation diagram]
+% Insert a timeline diagram here showing the growing training window,
+% the sliding validation block, and the single OOS prediction step.
+
+This scheme guarantees that every out-of-sample prediction is generated using only information available at that point in time, with no future leakage. Importantly, because the target variable $y_t$ is already forward-defined (it encodes a future event starting at $t$), the feature vector at date $t$ and the label $y_t$ can be aligned directly without any additional shifting.\\
+
+\noindent\textbf{Performance caching.} The rolling correlation matrices and time-series features are precomputed once over the full sample before the walk-forward loop begins. Within the loop, feature matrices for each training window are built incrementally---only the newly added dates are computed and appended to the cached window---avoiding redundant recomputation. This brings the total runtime from $O(T^2)$ to $O(T)$ in the number of feature evaluations.
+
+\subsection{Model selection and classification}
+\label{sec:models}
+
+At each outer step, hyperparameter selection proceeds by grid search over the validation window, maximising PR-AUC as the scoring criterion. PR-AUC (area under the precision-recall curve) is preferred over ROC-AUC for this imbalanced binary classification problem: with positive (crisis) events comprising approximately 20\% of observations, ROC-AUC is inflated by the large number of true negatives and may obscure the model's ability to correctly identify crises \cite{davis2006}.\\
+
+We evaluate the following classifiers:
+
+\begin{table}[H]
+\centering
+\caption{Classification models used in the walk-forward evaluation.}
+\label{tab:models}
+\begin{tabular}{lll}
+\toprule
+\textbf{Model} & \textbf{Key hyperparameters} & \textbf{Notes} \\
+\midrule
+L1 Logistic Regression & $C \in \{0.01\}$ & SAGA solver; balanced class weights; \\
+ & & $\ell_1$ penalty enforces feature sparsity \\
+Random Forest & $n_{\text{est}} = 200$; $d_{\max} = 5$ & Balanced class weights; \\
+ & & no feature scaling required \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Logistic regression features are standardised using a \texttt{StandardScaler} fitted on the training data and applied to the validation and test sets. Random forests are invariant to monotone transformations of features and require no scaling. Both models use \texttt{class\_weight="balanced"} to up-weight the minority (crisis) class in proportion to its inverse frequency, compensating for the class imbalance without requiring manual resampling.
+
+\subsection{Feature-mode ablation}
+
+To assess the marginal contribution of each feature group, we run the full walk-forward evaluation three times in parallel, using:
+\begin{enumerate}
+    \item \textbf{ts}: time-series features only (no network topology);
+    \item \textbf{network}: graph-level network features only (no time-series);
+    \item \textbf{all}: the concatenation of both feature sets.
+\end{enumerate}
+
+Comparison of OOS PR-AUC across these three modes allows us to disentangle whether predictive power stems from the structural properties of the correlation graph, from the dynamics of the return distribution, or from their combination. The three runs share the same precomputed correlation cache, so runtime scales linearly rather than triply with the number of modes.
+
+\section{Node-Level Network Analysis}
+\label{sec:node_features}
+
+Beyond the graph-level predictive exercise, the correlation network provides a rich source of cross-sectional information at the individual stock level. For each date $t$ and threshold $\tau$, we extract a vector of per-node metrics from $G_t$. These metrics constitute a panel dataset with dimensions (date, stock, metric), updated at daily frequency and covering the full sample.
+
+\subsection{Node-level metrics}
+
+\begin{table}[H]
+\centering
+\caption{Node-level network metrics computed for each stock at each date.}
+\label{tab:node_features}
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{Metric} & \textbf{Definition} \\
+\midrule
+Degree & Unweighted number of edges incident to node $i$ \\
+Strength & $s_i = \sum_{j \in \mathcal{N}(i)} \hat\rho_{ij}$ (signed weighted degree) \\
+Absolute strength & $|s_i|^+ = \sum_{j \in \mathcal{N}(i)} |\hat\rho_{ij}|$ \\
+Local clustering & $c_i = \frac{2}{k_i(k_i-1)} \sum_{j,k \in \mathcal{N}(i)} \tilde{w}_{ij}\tilde{w}_{ik}\tilde{w}_{jk}$ (weighted, absolute weights) \\
+Eigenvector centrality & $x_i \propto \sum_j A_{ij} x_j$ (dominant eigenvector, absolute weights) \\
+PageRank & Stationary distribution of a random walk on $|G_t|$ \\
+Core number & Largest $k$ such that $i$ belongs to the $k$-core of the graph \\
+Community & Integer label from greedy modularity maximisation on $|G_t|$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Centrality measures (eigenvector centrality, PageRank, and local clustering) are computed on the absolute-weight graph $|G_t|$ to avoid convergence issues inherent in eigenvector methods applied to signed adjacency matrices. Signed strength is retained separately, as it carries directional information (a stock with positive strength is predominantly positively correlated with its neighbours, while negative strength may indicate a natural hedge).\\
+
+K-core decomposition provides a coarser but computationally cheap measure of embeddedness: stocks with a high core number are part of the densely connected ``core'' of the market, while low-core stocks lie at the periphery. Community detection via greedy modularity maximisation reveals the emergent clustering structure of the correlation network, which may recover economically meaningful groupings beyond standard GICS sector classifications.
+
+\subsection{Potential cross-sectional strategies}
+
+The node-level panel can serve as the input to a variety of cross-sectional investment strategies. Several natural hypotheses follow from the network literature:
+
+\begin{itemize}
+    \item \textbf{Centrality and risk.} Stocks with high eigenvector centrality or PageRank are more ``systemically important'': shocks to these nodes propagate widely. During stress periods, high-centrality stocks may exhibit amplified drawdowns (contagion channel) or, conversely, may be first-movers that recover faster when sentiment normalises.
+    \item \textbf{Core-periphery dynamics.} During market crises, the correlation network typically becomes denser and more uniform, collapsing the core-periphery distinction. Monitoring the core number of a stock over time may therefore anticipate its susceptibility to drawdown.
+    \item \textbf{Community rotation.} Persistent changes in community membership may signal a structural shift in the co-movement regime, ahead of a sector rotation or a flight-to-quality episode.
+    \item \textbf{Strength as a crowding indicator.} Stocks with unusually high absolute strength are heavily interconnected with the rest of the market; this crowding may predict reversals when liquidity conditions deteriorate.
+\end{itemize}
+
+Empirical testing of these hypotheses through portfolio sorts is left for future work.
+
+
+\section{Results}
+\label{sec:results}
+
+\textit{Results will be reported once the walk-forward cross-validation has been completed. Planned tables and figures include: OOS PR-AUC by feature mode and model, validation score coverage, feature-target correlation diagnostics, degree distribution animations, and the node-level centrality panel summary statistics.}
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+\textit{To be completed once results are available.} This study develops a modular, reproducible pipeline for translating the structure of equity correlation networks into predictive signals for market crisis detection. By combining robust correlation estimation (Ledoit--Wolf shrinkage with exponential time-weighting), threshold graph construction, and a strict expanding walk-forward cross-validation framework, we aim to establish whether network topology provides incremental predictive power beyond what is captured by time-series features of the return distribution alone.\\
+
+Beyond the predictive exercise, the node-level centrality panel generated by this pipeline represents a daily cross-sectional dataset that can be directly exploited for systematic investment strategies. Future research could extend this framework to alternative graph construction methods (minimum spanning trees, graphical LASSO networks), additional model families, and multi-period crisis forecasting horizons.
+
+
+\begin{thebibliography}{99}
+
+\bibitem{ledoit2004}
+Ledoit, O., \& Wolf, M. (2004). A well-conditioned estimator for large-dimensional covariance matrices. \textit{Journal of Multivariate Analysis}, 88(2), 365--411.
+
+\bibitem{billio2012}
+Billio, M., Getmansky, M., Lo, A.\ W., \& Pelizzon, L. (2012). Econometric measures of connectedness and systemic risk in the finance and insurance sectors. \textit{Journal of Financial Economics}, 104(3), 535--559.
+
+\bibitem{laloux1999}
+Laloux, L., Cizeau, P., Bouchaud, J.-P., \& Potters, M. (1999). Noise dressing of financial correlation matrices. \textit{Physical Review Letters}, 83(7), 1467--1470.
+
+\bibitem{mantegna1999}
+Mantegna, R.\ N. (1999). Hierarchical structure in financial markets. \textit{The European Physical Journal B}, 11(1), 193--197.
+
+\bibitem{davis2006}
+Davis, J., \& Goadrich, M. (2006). The relationship between precision-recall and ROC curves. \textit{Proceedings of the 23rd International Conference on Machine Learning} (ICML), 233--240.
+
+\bibitem{onnela2003}
+Onnela, J.-P., Chakraborti, A., Kaski, K., Kertész, J., \& Kanto, A. (2003). Dynamics of market correlations: Taxonomy and portfolio analysis. \textit{Physical Review E}, 68(5), 056110.
+
+\bibitem{pozzi2013}
+Pozzi, F., Di Matteo, T., \& Aste, T. (2013). Spread of risk across financial markets: Better to invest in the peripheries. \textit{Scientific Reports}, 3, 1665.
+
+\end{thebibliography}
+
+\newpage
+\appendix
+
+\section{Walk-Forward Cross-Validation Scheme}
+\label{app:wfcv}
+
+Algorithm~\ref{alg:wfcv} provides a pseudocode description of the expanding walk-forward procedure used to generate out-of-sample predictions.
+
+\begin{algorithm}[H]
+\caption{Expanding Walk-Forward Cross-Validation}
+\label{alg:wfcv}
+\begin{algorithmic}[1]
+\Require Returns $\mathbf{R}$, target $\mathbf{y}$, precomputed feature cache $\mathcal{F}$,
+         train size $T_{\text{tr}}$, val size $T_{\text{val}}$, model grid $\mathcal{M}$, threshold grid $\mathcal{T}$
+\State $t_0 \leftarrow \tau_{\text{corr}} + T_{\text{tr}} + T_{\text{val}}$
+\For{each OOS date $t \geq t_0$}
+    \State $\mathcal{D}_{\text{train}} \leftarrow \{(x_s, y_s) : s \leq t - T_{\text{val}}\}$ \Comment{Expanding training set}
+    \State $\mathcal{D}_{\text{val}} \leftarrow \{(x_s, y_s) : t - T_{\text{val}} < s \leq t\}$ \Comment{Fixed validation block}
+    \For{each $(\theta, \tau) \in \mathcal{M} \times \mathcal{T}$}
+        \State Fit model $\hat{f}_{\theta,\tau}$ on $\mathcal{D}_{\text{train}}$
+        \State $\text{score}(\theta, \tau) \leftarrow \text{PR-AUC}\!\left(\hat{f}_{\theta,\tau}, \mathcal{D}_{\text{val}}\right)$
+    \EndFor
+    \State $(\theta^*, \tau^*) \leftarrow \arg\max_{\theta, \tau} \text{score}(\theta, \tau)$
+    \State Refit $\hat{f}^*$ on $\mathcal{D}_{\text{train}} \cup \mathcal{D}_{\text{val}}$ with $(\theta^*, \tau^*)$
+    \State $\hat{y}_t \leftarrow \hat{f}^*(x_t)$ \Comment{Single OOS prediction}
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+
+\section{Node-Level Feature Computation}
+\label{app:node}
+
+Node-level metrics are computed for each date $t$ by applying Algorithm~\ref{alg:node} to the threshold graph $G_t$. All centrality measures and community detection use the absolute-weight graph $|G_t|$, where $|w_{ij}| = |\hat\rho_{ij}|$ for all edges.
+
+\begin{algorithm}[H]
+\caption{Node-Level Network Feature Extraction}
+\label{alg:node}
+\begin{algorithmic}[1]
+\Require Threshold graph $G_t = (\mathcal{V}, \mathcal{E}, \mathbf{W})$
+\State $|G_t| \leftarrow $ graph with edge weights replaced by $|w_{ij}|$
+\For{each node $i \in \mathcal{V}$}
+    \State $d_i \leftarrow |\mathcal{N}(i)|$ \Comment{Unweighted degree}
+    \State $s_i \leftarrow \sum_{j \in \mathcal{N}(i)} w_{ij}$ \Comment{Signed strength}
+    \State $|s_i| \leftarrow \sum_{j \in \mathcal{N}(i)} |w_{ij}|$ \Comment{Absolute strength}
+    \State $c_i \leftarrow \text{WeightedClustering}(|G_t|, i)$
+\EndFor
+\State $\mathbf{x}^{\text{eig}} \leftarrow \text{EigenvectorCentrality}(|G_t|)$
+\State $\mathbf{x}^{\text{PR}} \leftarrow \text{PageRank}(|G_t|)$
+\State $\mathbf{k} \leftarrow \text{CoreNumber}(G_t)$ \Comment{Topology only, unweighted}
+\State $\mathcal{C} \leftarrow \text{GreedyModularityCommunities}(|G_t|)$
+\State \Return panel row $(t, i, d_i, s_i, |s_i|, c_i, x_i^{\text{eig}}, x_i^{\text{PR}}, k_i, \text{comm}(i))$ for all $i$
+\end{algorithmic}
+\end{algorithm}
+
+\end{document}

@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.covariance import LedoitWolf
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +91,13 @@ class RollingCorrelationEstimator:
         returns = returns.sort_index()
         corr_cache: Dict[pd.Timestamp, pd.DataFrame] = {}
         total = len(returns) - self.lookback
-        log_every = max(1, total // 10)
 
         logger.info(f"Starting rolling correlation: {total} dates, lookback={self.lookback}")
 
-        for i in range(self.lookback, len(returns)):
+        for i in tqdm(range(self.lookback, len(returns)), total=total, desc="Rolling correlations", unit="date"):
             date = returns.index[i]
             window = returns.iloc[i - self.lookback:i]
             corr_cache[date] = self.compute_correlation(window)
-
-            step = i - self.lookback + 1
-            if step % log_every == 0 or step == total:
-                logger.info(f"  {step}/{total} ({100 * step // total}%) — last date: {date.date()}")
 
         logger.info(f"Rolling correlation complete: {len(corr_cache)} matrices computed")
         return corr_cache

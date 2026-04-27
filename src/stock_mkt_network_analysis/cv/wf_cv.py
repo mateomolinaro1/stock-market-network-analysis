@@ -18,6 +18,7 @@ from sklearn.base import clone
 from sklearn.dummy import DummyClassifier
 from sklearn.pipeline import Pipeline
 import logging
+from tqdm.auto import tqdm
 
 from stock_mkt_network_analysis.cv.folds import build_rolling_time_series_folds
 from stock_mkt_network_analysis.cv.feature_pipeline import RollingNetworkFeaturePipeline
@@ -106,8 +107,8 @@ class SimpleRollingWalkForwardCV:
         _prev_train_end: int = -1
         _prev_val_end: int = -1
 
-        for i, t_test in enumerate(outer_test_dates):
-            logger.info(f"Processing test date {t_test} ({i+1}/{len(outer_test_dates)})")
+        for t_test in tqdm(outer_test_dates, desc=f"Walk-forward CV [{self.feature_mode}]", unit="date"):
+            logger.debug(f"Processing test date {t_test}")
             if t_test not in returns.index or t_test not in target.index:
                 continue
 

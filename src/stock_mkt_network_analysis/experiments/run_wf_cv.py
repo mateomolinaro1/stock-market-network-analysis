@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from dotenv import load_dotenv
 import pandas as pd
 from joblib import Parallel, delayed
@@ -17,6 +18,13 @@ from stock_mkt_network_analysis.utils.ml_metrics import get_scoring_func
 from stock_mkt_network_analysis.time_series.adaptive_time_series_feature_extractor import (
     AdaptiveTimeSeriesFeatureExtractor,
 )
+
+
+@dataclass
+class CVRunResult:
+    predictions: pd.DataFrame
+    selection_history: pd.DataFrame
+    oos_metrics: pd.DataFrame
 
 
 def _run_single_mode(
@@ -66,7 +74,7 @@ def build_feature_pipeline(config: Config) -> RollingNetworkFeaturePipeline:
     return pipeline
 
 
-def run_cv(data_manager: DataManager, feature_pipeline: RollingNetworkFeaturePipeline, config: Config) -> None:
+def run_cv(data_manager: DataManager, feature_pipeline: RollingNetworkFeaturePipeline, config: Config) -> CVRunResult:
     """
     Run the full walk-forward CV given a pre-built, pre-cached feature pipeline.
 
@@ -173,6 +181,12 @@ def run_cv(data_manager: DataManager, feature_pipeline: RollingNetworkFeaturePip
     print(selection_history.head())
     print()
 
+    return CVRunResult(
+        predictions=predictions,
+        selection_history=selection_history,
+        oos_metrics=oos_metrics,
+    )
+
 
 def main():
     load_dotenv()
@@ -198,7 +212,8 @@ def main():
     )
     logger.info("Feature pipeline cache precomputed successfully")
 
-    run_cv(data_manager, feature_pipeline, config)
+    result = run_cv(data_manager, feature_pipeline, config)
+    # result.predictions, result.selection_history, result.oos_metrics are available here
 
 
 if __name__ == "__main__":

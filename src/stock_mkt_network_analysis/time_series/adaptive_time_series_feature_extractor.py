@@ -7,6 +7,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -156,11 +157,10 @@ class AdaptiveTimeSeriesFeatureExtractor:
         rf_prepared = self._clean_series(risk_free_returns)
 
         total = max(0, len(asset_returns) - self.lookback)
-        log_every = max(1, total // 10) if total else 1
         logger.info("Starting adaptive TS features: %s dates, lookback=%s, windows=%s", total, self.lookback, self.windows)
 
         ref_index = asset_returns.index
-        for i in range(self.lookback, len(asset_returns)):
+        for i in tqdm(range(self.lookback, len(asset_returns)), total=total, desc="TS features", unit="date"):
             date = ref_index[i]
             window_assets = asset_returns.iloc[i - self.lookback:i]
             window_dates = ref_index[i - self.lookback:i]
@@ -169,10 +169,6 @@ class AdaptiveTimeSeriesFeatureExtractor:
             volume_window = self._slice_optional_frame(volumes, ref_index, i)
 
             rows[date] = self.transform(window_assets, market_series, rf_series, volume_window)
-
-            step = i - self.lookback + 1
-            if step % log_every == 0 or step == total:
-                logger.info("  %s/%s (%s%%) — last date: %s", step, total, 100 * step // max(total, 1), date.date())
 
         return pd.DataFrame.from_dict(rows, orient="index").sort_index().astype("float32")
 
