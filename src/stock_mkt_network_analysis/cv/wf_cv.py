@@ -78,7 +78,7 @@ class SimpleRollingWalkForwardCV:
             cache_key = compute_cache_key(cv_config)
             logger.info(f"CV cache key: {cache_key}")
             if cv_config.load_or_compute_cv == "load":
-                cached = load_cv_result(cache_key, aws_s3)
+                cached = load_cv_result(cache_key, aws_s3, self.feature_mode)
                 if cached is not None:
                     logger.info("Loaded CV result from S3 cache.")
                     return WalkForwardResult(**cached)
@@ -331,7 +331,7 @@ class SimpleRollingWalkForwardCV:
         )
 
         if aws_s3 is not None and cv_config is not None and cv_config.save_cv:
-            save_cv_result(result, cache_key, aws_s3)
+            save_cv_result(result, cache_key, aws_s3, self.feature_mode)
 
         return result
 

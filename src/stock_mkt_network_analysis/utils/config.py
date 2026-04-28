@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import json
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -58,6 +58,14 @@ class Config:
         self.scoring_metric: str = "roc_auc"
         self.load_or_compute_cv: str = "compute"
         self.save_cv: bool = False
+        self.load_or_compute_corr: str = "compute"
+        self.save_corr: bool = True
+        self.load_or_compute_ts: str = "compute"
+        self.save_ts: bool = True
+        self.load_or_compute_graph_features: str = "compute"
+        self.save_graph_features: bool = True
+        self.load_or_compute_node_features: str = "compute"
+        self.save_node_features: bool = True
         self.halflife_corr: Optional[int] = None
         self.feature_modes: List[str] = ["all"]
         self.expanding_or_rolling: str = "rolling"
@@ -150,6 +158,22 @@ class Config:
                 self.load_or_compute_cv = forecasting.get("LOAD_OR_COMPUTE_CV")
             if forecasting.get("SAVE_CV") is not None:
                 self.save_cv = forecasting.get("SAVE_CV")
+            if forecasting.get("LOAD_OR_COMPUTE_CORR") is not None:
+                self.load_or_compute_corr = forecasting.get("LOAD_OR_COMPUTE_CORR")
+            if forecasting.get("SAVE_CORR") is not None:
+                self.save_corr = forecasting.get("SAVE_CORR")
+            if forecasting.get("LOAD_OR_COMPUTE_TS") is not None:
+                self.load_or_compute_ts = forecasting.get("LOAD_OR_COMPUTE_TS")
+            if forecasting.get("SAVE_TS") is not None:
+                self.save_ts = forecasting.get("SAVE_TS")
+            if forecasting.get("LOAD_OR_COMPUTE_GRAPH_FEATURES") is not None:
+                self.load_or_compute_graph_features = forecasting.get("LOAD_OR_COMPUTE_GRAPH_FEATURES")
+            if forecasting.get("SAVE_GRAPH_FEATURES") is not None:
+                self.save_graph_features = forecasting.get("SAVE_GRAPH_FEATURES")
+            if forecasting.get("LOAD_OR_COMPUTE_NODE_FEATURES") is not None:
+                self.load_or_compute_node_features = forecasting.get("LOAD_OR_COMPUTE_NODE_FEATURES")
+            if forecasting.get("SAVE_NODE_FEATURES") is not None:
+                self.save_node_features = forecasting.get("SAVE_NODE_FEATURES")
             if forecasting.get("HALFLIFE_CORR") is not None:
                 self.halflife_corr = forecasting.get("HALFLIFE_CORR")
             if forecasting.get("FEATURE_MODES") is not None:

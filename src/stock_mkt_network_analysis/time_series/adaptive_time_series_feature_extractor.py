@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Iterable, Optional, Sequence
+from dataclasses import dataclass
+from typing import Dict, Optional, Sequence
 import logging
 import warnings
 
@@ -244,7 +244,8 @@ class AdaptiveTimeSeriesFeatureExtractor:
         features.update(self._ratio_features(features))
         return features
 
-    def _cross_section_features(self, returns: pd.DataFrame, suffix: str, sqrt_ann: float) -> Dict[str, float]:
+    @staticmethod
+    def _cross_section_features(returns: pd.DataFrame, suffix: str, sqrt_ann: float) -> Dict[str, float]:
         out: Dict[str, float] = {}
         if returns.empty:
             return out

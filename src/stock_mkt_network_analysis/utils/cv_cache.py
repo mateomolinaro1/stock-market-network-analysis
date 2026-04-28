@@ -62,8 +62,8 @@ def compute_cache_key(config) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
-def _s3_key(cache_key: str, name: str) -> str:
-    return f"{_S3_PREFIX}/{cache_key}/{name}.parquet"
+def _s3_key(cache_key: str, name: str, feature_mode: str = "all") -> str:
+    return f"{_S3_PREFIX}/{cache_key}/{feature_mode}/{name}.parquet"
 
 
 def _prepare_for_upload(df: pd.DataFrame) -> pd.DataFrame:
@@ -82,7 +82,7 @@ def _infer_and_set_index(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def save_cv_result(result, cache_key: str, s3) -> None:
+def save_cv_result(result, cache_key: str, s3, feature_mode: str = "all") -> None:
     """
     Upload predictions, selection_history, and oos_metrics to S3 as parquet files.
 
@@ -96,14 +96,14 @@ def save_cv_result(result, cache_key: str, s3) -> None:
     }
 
     for name, df in frames.items():
-        key = _s3_key(cache_key, name)
+        key = _s3_key(cache_key, name, feature_mode)
         if s3.exists(key):
             logger.warning(f"Overwriting existing CV result at {key}")
         s3.upload(_prepare_for_upload(df), key, overwrite=True)
         logger.info(f"Saved {name}.parquet to {key}")
 
 
-def load_cv_result(cache_key: str, s3) -> Optional[dict]:
+def load_cv_result(cache_key: str, s3, feature_mode: str = "all") -> Optional[dict]:
     """
     Download predictions, selection_history, and oos_metrics from S3.
 
@@ -112,7 +112,7 @@ def load_cv_result(cache_key: str, s3) -> Optional[dict]:
     """
     frames = {}
     for name in _FILENAMES:
-        key = _s3_key(cache_key, name)
+        key = _s3_key(cache_key, name, feature_mode)
         if not s3.exists(key):
             logger.warning(f"CV cache miss: {key} not found.")
             return None

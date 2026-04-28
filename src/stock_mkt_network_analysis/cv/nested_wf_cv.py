@@ -68,6 +68,8 @@ class NestedWalkForwardCV:
         :param returns:
         :param target:
         :param outer_test_dates:
+        :param aws_s3:
+        :param cv_config:
         :return:
         """
 

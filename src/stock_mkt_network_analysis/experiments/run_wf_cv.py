@@ -15,6 +15,10 @@ from stock_mkt_network_analysis.network.correlation import RollingCorrelationEst
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
 from stock_mkt_network_analysis.utils.ml_metrics import get_scoring_func
+from stock_mkt_network_analysis.utils.corr_cache import compute_corr_cache_key
+from stock_mkt_network_analysis.utils.ts_cache import compute_ts_cache_key
+from stock_mkt_network_analysis.utils.graph_features_cache import compute_graph_features_cache_key
+from stock_mkt_network_analysis.utils.node_features_cache import compute_node_features_cache_key
 from stock_mkt_network_analysis.time_series.adaptive_time_series_feature_extractor import (
     AdaptiveTimeSeriesFeatureExtractor,
 )
@@ -51,8 +55,8 @@ def _run_single_mode(
         returns=returns,
         target=target,
         outer_test_dates=outer_test_dates,
-        aws_s3=aws_s3 if mode == "all" else None,
-        cv_config=cv_config if mode == "all" else None,
+        aws_s3=aws_s3,
+        cv_config=cv_config,
     )
 
 
@@ -97,16 +101,11 @@ def run_cv(data_manager: DataManager, feature_pipeline: RollingNetworkFeaturePip
     target = data_manager.target_variable_to_predict.squeeze().dropna()
 
     # ------------------------------------------------------------------
-    # Node-level network features (date x stock_id x metric)
+    # Node-level network features — already precomputed in precompute_cache()
     # ------------------------------------------------------------------
-    logger.info("Computing node-level network features...")
-    outputs_dir = config.ROOT_DIR / "outputs"
-    outputs_dir.mkdir(exist_ok=True)
-    for threshold in threshold_grid:
-        node_features = feature_pipeline.compute_node_features(returns=returns, threshold=threshold)
-        out_path = outputs_dir / f"node_features_threshold_{threshold}.parquet"
-        node_features.to_parquet(out_path)
-        logger.info(f"Node features saved to {out_path} — shape: {node_features.shape}")
+    if feature_pipeline._node_feature_cache:
+        for threshold, node_df in feature_pipeline._node_feature_cache.items():
+            logger.info("Node features ready for threshold=%s — shape: %s", threshold, node_df.shape)
 
     # ------------------------------------------------------------------
     # Diagnostic: feature–target correlations
@@ -205,15 +204,34 @@ def main():
 
     logger.info("Precomputing feature pipeline cache...")
     feature_pipeline = build_feature_pipeline(config)
+    corr_cache_key = compute_corr_cache_key(config, data_manager.network_returns)
+    ts_cache_key = compute_ts_cache_key(config, data_manager.network_returns)
+    graph_features_cache_key = compute_graph_features_cache_key(config, data_manager.network_returns)
+    node_features_cache_key = compute_node_features_cache_key(config, data_manager.network_returns)
     feature_pipeline.precompute_cache(
         returns=data_manager.network_returns,
         market_returns=data_manager.mkt_returns,
         risk_free_returns=data_manager.rf_returns,
+        load_or_compute_corr=config.load_or_compute_corr,
+        save_corr=config.save_corr,
+        corr_cache_key=corr_cache_key,
+        s3_bucket=config.bucket_name,
+        s3_region=config.region,
+        load_or_compute_ts=config.load_or_compute_ts,
+        save_ts=config.save_ts,
+        ts_cache_key=ts_cache_key,
+        load_or_compute_graph_features=config.load_or_compute_graph_features,
+        save_graph_features=config.save_graph_features,
+        graph_features_cache_key=graph_features_cache_key,
+        threshold_grid=config.threshold_grid,
+        load_or_compute_node_features=config.load_or_compute_node_features,
+        save_node_features=config.save_node_features,
+        node_features_cache_key=node_features_cache_key,
+        s3=data_manager.aws.s3,
     )
     logger.info("Feature pipeline cache precomputed successfully")
 
-    result = run_cv(data_manager, feature_pipeline, config)
-    # result.predictions, result.selection_history, result.oos_metrics are available here
+    run_cv(data_manager, feature_pipeline, config)
 
 
 if __name__ == "__main__":

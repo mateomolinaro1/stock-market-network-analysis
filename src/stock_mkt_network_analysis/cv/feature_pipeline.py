@@ -8,6 +8,16 @@ import pandas as pd
 
 from stock_mkt_network_analysis.network.correlation import RollingCorrelationEstimator
 from stock_mkt_network_analysis.network.feature_extractor import BasicNetworkFeatureExtractor, NodeLevelNetworkFeatureExtractor
+from stock_mkt_network_analysis.utils.corr_cache import load_corr_cache, save_corr_cache
+from stock_mkt_network_analysis.utils.ts_cache import load_ts_cache, save_ts_cache
+from stock_mkt_network_analysis.utils.graph_features_cache import (
+    load_graph_features_cache,
+    save_graph_features_cache,
+)
+from stock_mkt_network_analysis.utils.node_features_cache import (
+    load_node_features_cache,
+    save_node_features_cache,
+)
 from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuilder
 from stock_mkt_network_analysis.time_series.adaptive_time_series_feature_extractor import (
     AdaptiveTimeSeriesFeatureExtractor,
@@ -28,6 +38,7 @@ class RollingNetworkFeaturePipeline:
         default=None, init=False, repr=False
     )
     _ts_feature_cache: Optional[pd.DataFrame] = field(default=None, init=False, repr=False)
+    _node_feature_cache: Optional[Dict[float, pd.DataFrame]] = field(default=None, init=False, repr=False)
     _market_returns: Optional[pd.DataFrame | pd.Series] = field(default=None, init=False, repr=False)
     _risk_free_returns: Optional[pd.DataFrame | pd.Series] = field(default=None, init=False, repr=False)
     _volumes: Optional[pd.DataFrame] = field(default=None, init=False, repr=False)
@@ -38,28 +49,185 @@ class RollingNetworkFeaturePipeline:
         market_returns: Optional[pd.DataFrame | pd.Series] = None,
         risk_free_returns: Optional[pd.DataFrame | pd.Series] = None,
         volumes: Optional[pd.DataFrame] = None,
+        load_or_compute_corr: str = "compute",
+        save_corr: bool = False,
+        corr_cache_key: Optional[str] = None,
+        s3_bucket: Optional[str] = None,
+        s3_region: Optional[str] = None,
+        load_or_compute_ts: str = "compute",
+        save_ts: bool = False,
+        ts_cache_key: Optional[str] = None,
+        load_or_compute_graph_features: str = "compute",
+        save_graph_features: bool = False,
+        graph_features_cache_key: Optional[str] = None,
+        threshold_grid: Optional[Sequence[float]] = None,
+        load_or_compute_node_features: str = "compute",
+        save_node_features: bool = False,
+        node_features_cache_key: Optional[str] = None,
+        s3=None,
     ) -> None:
         """
         Pre-compute rolling correlation matrices and optional time-series features
         once on the full returns.
+
+        load_or_compute_corr : "load" tries S3 first (falls back to compute on miss);
+                               "compute" always recomputes.
+        save_corr            : when True, uploads the computed corr cache to S3.
+        corr_cache_key       : pre-computed cache key (from compute_corr_cache_key).
+        s3_bucket / s3_region: S3 coordinates for corr cache (boto3 direct upload).
+        load_or_compute_ts            : same semantics as load_or_compute_corr but for TS features.
+        save_ts                       : when True, uploads the computed TS feature cache to S3.
+        ts_cache_key                  : pre-computed cache key (from compute_ts_cache_key).
+        load_or_compute_graph_features: "load" tries S3 first; "compute" always recomputes.
+        save_graph_features           : when True, uploads the graph feature cache to S3.
+        graph_features_cache_key      : pre-computed cache key (from compute_graph_features_cache_key).
+        threshold_grid                : list of thresholds to eager-precompute graph/node features for.
+        load_or_compute_node_features : same semantics for node-level features.
+        save_node_features            : when True, uploads the node feature cache to S3.
+        node_features_cache_key       : pre-computed cache key (from compute_node_features_cache_key).
+        s3                            : better_aws S3 client instance (for TS/graph/node parquet upload/load).
         """
-        logger.info("Pre-computing rolling correlation cache on full returns...")
-        self._corr_cache = self.correlation_estimator.compute_rolling(returns)
+        _can_cache = corr_cache_key is not None and s3_bucket is not None and s3_region is not None
+
+        if load_or_compute_corr == "load" and _can_cache:
+            logger.info("Trying to load corr cache from S3 (key=%s)...", corr_cache_key)
+            loaded = load_corr_cache(corr_cache_key, s3_bucket, s3_region)
+            if loaded is not None:
+                self._corr_cache = loaded
+            else:
+                logger.warning("Corr cache miss — computing from scratch.")
+                self._corr_cache = self.correlation_estimator.compute_rolling(returns)
+                if save_corr:
+                    save_corr_cache(self._corr_cache, corr_cache_key, s3_bucket, s3_region)
+        else:
+            logger.info("Pre-computing rolling correlation cache on full returns...")
+            self._corr_cache = self.correlation_estimator.compute_rolling(returns)
+            if save_corr and _can_cache:
+                save_corr_cache(self._corr_cache, corr_cache_key, s3_bucket, s3_region)
+
         self._feature_cache = {}
         self._market_returns = market_returns
         self._risk_free_returns = risk_free_returns
         self._volumes = volumes
 
         if self.time_series_feature_extractor is not None:
-            logger.info("Pre-computing adaptive time-series feature cache on full returns...")
-            self._ts_feature_cache = self.time_series_feature_extractor.compute_rolling(
-                asset_returns=returns,
-                market_returns=market_returns,
-                risk_free_returns=risk_free_returns,
-                volumes=volumes,
+            _can_ts_cache = ts_cache_key is not None and s3 is not None
+            if load_or_compute_ts == "load" and _can_ts_cache:
+                logger.info("Trying to load TS feature cache from S3 (key=%s)...", ts_cache_key)
+                loaded_ts = load_ts_cache(ts_cache_key, s3)
+                if loaded_ts is not None:
+                    self._ts_feature_cache = loaded_ts
+                else:
+                    logger.warning("TS cache miss — computing from scratch.")
+                    self._ts_feature_cache = self.time_series_feature_extractor.compute_rolling(
+                        asset_returns=returns,
+                        market_returns=market_returns,
+                        risk_free_returns=risk_free_returns,
+                        volumes=volumes,
+                    )
+                    if save_ts:
+                        save_ts_cache(self._ts_feature_cache, ts_cache_key, s3)
+            else:
+                logger.info("Pre-computing adaptive time-series feature cache on full returns...")
+                self._ts_feature_cache = self.time_series_feature_extractor.compute_rolling(
+                    asset_returns=returns,
+                    market_returns=market_returns,
+                    risk_free_returns=risk_free_returns,
+                    volumes=volumes,
+                )
+                if save_ts and _can_ts_cache:
+                    save_ts_cache(self._ts_feature_cache, ts_cache_key, s3)
+
+        # ------------------------------------------------------------------
+        # Graph-level features — eager precomputation over all (date, threshold)
+        # ------------------------------------------------------------------
+        _can_graph_cache = graph_features_cache_key is not None and s3 is not None
+        _thresholds = list(threshold_grid) if threshold_grid is not None else []
+
+        if load_or_compute_graph_features == "load" and _can_graph_cache:
+            logger.info(
+                "Trying to load graph features cache from S3 (key=%s)...", graph_features_cache_key
             )
+            loaded_gf = load_graph_features_cache(graph_features_cache_key, s3)
+            if loaded_gf is not None:
+                self._feature_cache = loaded_gf
+            else:
+                logger.warning("Graph features cache miss — computing from scratch.")
+                self._feature_cache = self._eager_compute_graph_features(_thresholds)
+                if save_graph_features:
+                    save_graph_features_cache(self._feature_cache, graph_features_cache_key, s3)
+        elif _thresholds:
+            logger.info("Pre-computing graph-level feature cache for %d threshold(s)...", len(_thresholds))
+            self._feature_cache = self._eager_compute_graph_features(_thresholds)
+            if save_graph_features and _can_graph_cache:
+                save_graph_features_cache(self._feature_cache, graph_features_cache_key, s3)
+
+        # ------------------------------------------------------------------
+        # Node-level features — eager precomputation per threshold
+        # ------------------------------------------------------------------
+        _can_node_cache = node_features_cache_key is not None and s3 is not None
+
+        if load_or_compute_node_features == "load" and _can_node_cache:
+            logger.info(
+                "Trying to load node features cache from S3 (key=%s)...", node_features_cache_key
+            )
+            loaded_nf = load_node_features_cache(node_features_cache_key, _thresholds, s3)
+            if loaded_nf is not None:
+                self._node_feature_cache = loaded_nf
+            else:
+                logger.warning("Node features cache miss — computing from scratch.")
+                self._node_feature_cache = self._eager_compute_node_features(_thresholds)
+                if save_node_features:
+                    save_node_features_cache(self._node_feature_cache, node_features_cache_key, s3)
+        elif _thresholds:
+            logger.info("Pre-computing node-level feature cache for %d threshold(s)...", len(_thresholds))
+            self._node_feature_cache = self._eager_compute_node_features(_thresholds)
+            if save_node_features and _can_node_cache:
+                save_node_features_cache(self._node_feature_cache, node_features_cache_key, s3)
 
         logger.info(f"Cache ready: {len(self._corr_cache)} correlation matrices stored")
+
+    def _eager_compute_graph_features(
+        self, threshold_grid: Sequence[float]
+    ) -> Dict[Tuple[pd.Timestamp, float], Dict]:
+        """Compute and return graph-level features for every (date, threshold) pair."""
+        from tqdm.auto import tqdm
+
+        cache: Dict[Tuple[pd.Timestamp, float], Dict] = {}
+        corr_items = sorted(self._corr_cache.items())
+        pairs = [(d, corr, t) for d, corr in corr_items for t in threshold_grid]
+        for date, corr, threshold in tqdm(pairs, desc="Graph features", unit="pair"):
+            if corr.empty:
+                continue
+            key = (date, threshold)
+            graph = self.graph_builder.build(corr, threshold)
+            cache[key] = self.feature_extractor.transform(graph, corr)
+        return cache
+
+    def _eager_compute_node_features(
+        self, threshold_grid: Sequence[float]
+    ) -> Dict[float, pd.DataFrame]:
+        """Compute and return node-level features for every threshold."""
+        from tqdm.auto import tqdm
+
+        node_extractor = NodeLevelNetworkFeatureExtractor()
+        result: Dict[float, pd.DataFrame] = {}
+        for threshold in tqdm(threshold_grid, desc="Node features", unit="threshold"):
+            frames = []
+            for date, corr in sorted(self._corr_cache.items()):
+                if corr.empty:
+                    continue
+                graph = self.graph_builder.build(corr, threshold)
+                node_df = node_extractor.transform(graph)
+                if node_df.empty:
+                    continue
+                node_df.index.name = "stock_id"
+                node_df["date"] = date
+                frames.append(node_df.reset_index())
+            if frames:
+                df = pd.concat(frames, ignore_index=True).set_index(["date", "stock_id"])
+                result[float(threshold)] = df
+        return result
 
     def evict_before(self, cutoff_date: pd.Timestamp) -> None:
         """
