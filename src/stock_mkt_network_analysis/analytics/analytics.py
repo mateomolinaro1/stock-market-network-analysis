@@ -48,17 +48,18 @@ class Analytics:
             end_date: str | None = None,
             threshold: float | None = None,
             degree_threshold: int | None = None,
-            max_frames: int | None = None,
+            max_frames: int | None = 180,
             normalize_degree_counts: bool = False,
             degree_xscale: str = "log",
             degree_yscale: str = "log",
             degree_y_max_quantile: float | None = None,
             degree_plot_kind: str = "pmf",
-            normalize_rich_club: bool = True,
-            n_random_reference: int = 10,
+            normalize_rich_club: bool = False,
+            n_random_reference: int = 3,
             random_swaps_per_edge: int = 5,
             rich_club_xscale: str = "log",
             rich_club_yscale: str = "linear",
+            regime_max_dates: int | None = None,
             corr_cache: Optional[Dict[pd.Timestamp, pd.DataFrame]] = None,
     ) -> dict[str, object]:
         """
@@ -84,6 +85,7 @@ class Analytics:
         )
 
         returns = self.data.network_returns
+        target = self.data.target_variable_to_predict.squeeze().dropna()
         degree_path = animator.animate_degree_distribution(
             returns=returns,
             start_date=start_date,
@@ -94,6 +96,7 @@ class Analytics:
             yscale=degree_yscale,
             y_max_quantile=degree_y_max_quantile,
             plot_kind=degree_plot_kind,
+            target=target,
         )
         rich_club_path = animator.animate_rich_club(
             returns=returns,
@@ -106,11 +109,37 @@ class Analytics:
             random_swaps_per_edge=random_swaps_per_edge,
             xscale=rich_club_xscale,
             yscale=rich_club_yscale,
+            target=target,
+        )
+        regime_degree_path = animator.plot_degree_distribution_by_regime(
+            returns=returns,
+            target=target,
+            start_date=start_date,
+            end_date=end_date,
+            max_dates=regime_max_dates,
+            xscale=degree_xscale,
+            yscale=degree_yscale,
+            plot_kind=degree_plot_kind,
+            normalize_counts=True,
+        )
+        regime_rich_club_path = animator.plot_rich_club_by_regime(
+            returns=returns,
+            target=target,
+            start_date=start_date,
+            end_date=end_date,
+            max_dates=regime_max_dates,
+            normalized=normalize_rich_club,
+            n_random_reference=n_random_reference,
+            random_swaps_per_edge=random_swaps_per_edge,
+            xscale=rich_club_xscale,
+            yscale=rich_club_yscale,
         )
 
         return {
             "degree_distribution": degree_path,
             "rich_club": rich_club_path,
+            "degree_distribution_by_regime": regime_degree_path,
+            "rich_club_by_regime": regime_rich_club_path,
         }
 
 

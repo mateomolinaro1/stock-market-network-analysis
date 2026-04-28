@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
@@ -19,6 +19,10 @@ from stock_mkt_network_analysis.network.graph_builder import ThresholdGraphBuild
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ANIMATION_MAX_FRAMES = 180
+DEFAULT_ANIMATION_FPS = 8
+DEFAULT_ANIMATION_INTERVAL = 125
+
 
 @dataclass
 class RollingNetworkAnimator:
@@ -35,6 +39,9 @@ class RollingNetworkAnimator:
     threshold: float
     figures_dir: Path | str
     corr_cache: Optional[Dict[pd.Timestamp, pd.DataFrame]] = None
+    _graph_cache: dict[tuple[Optional[str], Optional[str], Optional[int]], Dict[pd.Timestamp, nx.Graph]] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         self.figures_dir = Path(self.figures_dir)
@@ -52,12 +59,18 @@ class RollingNetworkAnimator:
         Dates are the eligible target dates produced by the rolling correlation
         estimator, so each graph at date t uses observations strictly before t.
         """
-        returns = returns.sort_index()
-        corr_cache = (
-            self.corr_cache
-            if self.corr_cache is not None
-            else self.correlation_estimator.compute_rolling(returns)
+        cache_key = (
+            None if start_date is None else str(pd.Timestamp(start_date)),
+            None if end_date is None else str(pd.Timestamp(end_date)),
+            max_frames,
         )
+        if cache_key in self._graph_cache:
+            return self._graph_cache[cache_key]
+
+        returns = returns.sort_index()
+        if self.corr_cache is None:
+            self.corr_cache = self.correlation_estimator.compute_rolling(returns)
+        corr_cache = self.corr_cache
         dates = self._select_dates(corr_cache.keys(), start_date, end_date, max_frames)
 
         graphs: Dict[pd.Timestamp, nx.Graph] = {}
@@ -70,6 +83,7 @@ class RollingNetworkAnimator:
         if not graphs:
             raise ValueError("No graph could be built for the selected period.")
 
+        self._graph_cache[cache_key] = graphs
         return graphs
 
     def animate_degree_distribution(
@@ -78,20 +92,22 @@ class RollingNetworkAnimator:
         start_date: Optional[pd.Timestamp | str] = None,
         end_date: Optional[pd.Timestamp | str] = None,
         filename: str = "degree_distribution_over_time.gif",
-        fps: int = 4,
-        interval: int = 250,
-        max_frames: Optional[int] = None,
+        fps: int = DEFAULT_ANIMATION_FPS,
+        interval: int = DEFAULT_ANIMATION_INTERVAL,
+        max_frames: Optional[int] = DEFAULT_ANIMATION_MAX_FRAMES,
         normalize_counts: bool = False,
         xscale: str = "linear",
         yscale: str = "linear",
         y_max_quantile: Optional[float] = None,
         plot_kind: str = "hist",
+        target: Optional[pd.Series | pd.DataFrame] = None,
     ) -> Path:
         """
         Animate the unweighted degree distribution through time.
         """
         graphs = self.build_graphs(returns, start_date, end_date, max_frames)
         dates = list(graphs)
+        regimes = self._target_regimes(target, dates)
         max_degree = max((max(dict(graph.degree()).values(), default=0) for graph in graphs.values()), default=0)
         bins = self._degree_bins(max_degree, xscale)
         y_limits = self._degree_distribution_y_limits(
@@ -126,6 +142,7 @@ class RollingNetworkAnimator:
             ax.set_title(f"Degree distribution - {date:%Y-%m-%d}")
             ax.set_xlabel("Degree")
             ax.set_ylabel(ylabel)
+            self._annotate_regime(ax, regimes.get(date))
             ax.grid(axis="y", alpha=0.3)
 
         animation = FuncAnimation(fig, update, frames=len(dates), interval=interval, repeat=True)
@@ -140,15 +157,16 @@ class RollingNetworkAnimator:
         end_date: Optional[pd.Timestamp | str] = None,
         degree_threshold: Optional[int] = None,
         filename: str = "rich_club_over_time.gif",
-        fps: int = 4,
-        interval: int = 250,
-        max_frames: Optional[int] = None,
+        fps: int = DEFAULT_ANIMATION_FPS,
+        interval: int = DEFAULT_ANIMATION_INTERVAL,
+        max_frames: Optional[int] = DEFAULT_ANIMATION_MAX_FRAMES,
         normalized: bool = False,
         n_random_reference: int = 10,
         random_swaps_per_edge: int = 5,
         random_seed: Optional[int] = 42,
         xscale: str = "linear",
         yscale: str = "linear",
+        target: Optional[pd.Series | pd.DataFrame] = None,
     ) -> Path:
         """
         Animate the rich-club coefficient curve phi(k) through time.
@@ -159,6 +177,7 @@ class RollingNetworkAnimator:
         """
         graphs = self.build_graphs(returns, start_date, end_date, max_frames)
         dates = list(graphs)
+        regimes = self._target_regimes(target, dates)
         curves = {
             date: self._rich_club_curve(
                 graph=graph,
@@ -196,12 +215,123 @@ class RollingNetworkAnimator:
             ax.set_title(f"{title} - {date:%Y-%m-%d}")
             ax.set_xlabel("Degree threshold k")
             ax.set_ylabel("phi(k) / phi_random(k)" if normalized else "phi(k)")
+            self._annotate_regime(ax, regimes.get(date))
             ax.grid(alpha=0.3)
 
         animation = FuncAnimation(fig, update, frames=len(dates), interval=interval, repeat=True)
         path = self._save_animation(animation, fig, filename, fps)
         logger.info("Rich-club animation saved to %s", path)
         return path
+
+    def plot_degree_distribution_by_regime(
+        self,
+        returns: pd.DataFrame,
+        target: pd.Series | pd.DataFrame,
+        start_date: Optional[pd.Timestamp | str] = None,
+        end_date: Optional[pd.Timestamp | str] = None,
+        filename: str = "degree_distribution_by_regime.png",
+        max_dates: Optional[int] = None,
+        normalize_counts: bool = True,
+        xscale: str = "log",
+        yscale: str = "log",
+        plot_kind: str = "pmf",
+    ) -> Path:
+        """
+        Plot average degree distributions by target regime over the selected period.
+        """
+        graphs = self.build_graphs(returns, start_date, end_date, max_dates)
+        regime_graphs = self._split_graphs_by_regime(graphs, target)
+        max_degree = max((max(dict(graph.degree()).values(), default=0) for graph in graphs.values()), default=0)
+        bins = self._degree_bins(max_degree, xscale)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for regime_value, label, color in self._regime_specs():
+            graph_list = regime_graphs.get(regime_value, [])
+            if not graph_list:
+                continue
+
+            if plot_kind == "hist":
+                curves = []
+                for graph in graph_list:
+                    degrees = [degree for _, degree in graph.degree()]
+                    counts, edges = np.histogram(degrees, bins=bins, density=normalize_counts)
+                    centers = (edges[:-1] + edges[1:]) / 2
+                    curves.append(dict(zip(centers, counts)))
+                x, y = self._mean_curve(curves)
+                ylabel = "Density" if normalize_counts else "Number of nodes"
+            elif plot_kind == "pmf":
+                curves = []
+                for graph in graph_list:
+                    degrees = [degree for _, degree in graph.degree()]
+                    k_values, probabilities = self._degree_pmf(degrees)
+                    curves.append(dict(zip(k_values, probabilities)))
+                x, y = self._mean_curve(curves)
+                ylabel = "P(k)"
+            else:
+                raise ValueError("plot_kind must be either 'hist' or 'pmf'.")
+
+            if yscale == "log":
+                y = np.where(y > 0, y, np.nan)
+            ax.plot(x, y, marker="o", label=label, color=color)
+
+        ax.set_title("Average degree distribution by regime")
+        ax.set_xlabel("Degree")
+        ax.set_ylabel(ylabel)
+        self._apply_static_axis_scaling(ax, xscale, yscale)
+        ax.legend()
+        ax.grid(alpha=0.3)
+        return self._save_figure(fig, filename)
+
+    def plot_rich_club_by_regime(
+        self,
+        returns: pd.DataFrame,
+        target: pd.Series | pd.DataFrame,
+        start_date: Optional[pd.Timestamp | str] = None,
+        end_date: Optional[pd.Timestamp | str] = None,
+        filename: str = "rich_club_by_regime.png",
+        max_dates: Optional[int] = None,
+        normalized: bool = False,
+        n_random_reference: int = 10,
+        random_swaps_per_edge: int = 5,
+        random_seed: Optional[int] = 42,
+        xscale: str = "log",
+        yscale: str = "linear",
+    ) -> Path:
+        """
+        Plot average rich-club curves by target regime over the selected period.
+        """
+        graphs = self.build_graphs(returns, start_date, end_date, max_dates)
+        regime_graphs = self._split_graphs_by_regime(graphs, target)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for regime_value, label, color in self._regime_specs():
+            graph_list = regime_graphs.get(regime_value, [])
+            if not graph_list:
+                continue
+
+            curves = [
+                self._rich_club_curve(
+                    graph=graph,
+                    normalized=normalized,
+                    n_random_reference=n_random_reference,
+                    random_swaps_per_edge=random_swaps_per_edge,
+                    random_seed=None if random_seed is None else random_seed + idx,
+                )
+                for idx, graph in enumerate(graph_list)
+            ]
+            x, y = self._mean_curve(curves)
+            if yscale == "log":
+                y = np.where(y > 0, y, np.nan)
+            ax.plot(x, y, marker="o", label=label, color=color)
+
+        title = "Average normalized rich-club by regime" if normalized else "Average rich-club by regime"
+        ax.set_title(title)
+        ax.set_xlabel("Degree threshold k")
+        ax.set_ylabel("phi(k) / phi_random(k)" if normalized else "phi(k)")
+        self._apply_static_axis_scaling(ax, xscale, yscale)
+        ax.legend()
+        ax.grid(alpha=0.3)
+        return self._save_figure(fig, filename)
 
     @staticmethod
     def _select_dates(
@@ -222,6 +352,100 @@ class RollingNetworkAnimator:
             selected = selected.take(np.unique(positions))
 
         return [pd.Timestamp(date) for date in selected]
+
+    @staticmethod
+    def _target_regimes(
+        target: Optional[pd.Series | pd.DataFrame],
+        dates: Iterable[pd.Timestamp],
+    ) -> dict[pd.Timestamp, Optional[int]]:
+        if target is None:
+            return {}
+
+        target_series = RollingNetworkAnimator._as_target_series(target)
+        aligned = target_series.reindex(pd.Index(dates)).dropna()
+        return {pd.Timestamp(date): int(value) for date, value in aligned.items()}
+
+    @staticmethod
+    def _as_target_series(target: pd.Series | pd.DataFrame) -> pd.Series:
+        if isinstance(target, pd.DataFrame):
+            if target.empty:
+                return pd.Series(dtype=float)
+            target_series = target.iloc[:, 0]
+        else:
+            target_series = target
+
+        target_series = target_series.copy()
+        target_series.index = pd.to_datetime(target_series.index)
+        return target_series.sort_index()
+
+    @staticmethod
+    def _regime_specs() -> list[tuple[int, str, str]]:
+        return [
+            (0, "Régime normal", "#2a9d8f"),
+            (1, "Régime tendu", "#e76f51"),
+        ]
+
+    @staticmethod
+    def _regime_label(value: Optional[int]) -> str:
+        if value == 0:
+            return "Régime normal"
+        if value == 1:
+            return "Régime tendu"
+        return "Régime inconnu"
+
+    @staticmethod
+    def _regime_color(value: Optional[int]) -> str:
+        if value == 0:
+            return "#2a9d8f"
+        if value == 1:
+            return "#e76f51"
+        return "#6c757d"
+
+    @staticmethod
+    def _annotate_regime(ax: plt.Axes, regime_value: Optional[int]) -> None:
+        if regime_value is None:
+            return
+
+        ax.text(
+            0.98,
+            0.94,
+            RollingNetworkAnimator._regime_label(regime_value),
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            color="white",
+            fontsize=11,
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": RollingNetworkAnimator._regime_color(regime_value),
+                "edgecolor": "none",
+                "alpha": 0.9,
+            },
+        )
+
+    @staticmethod
+    def _split_graphs_by_regime(
+        graphs: Dict[pd.Timestamp, nx.Graph],
+        target: pd.Series | pd.DataFrame,
+    ) -> dict[int, list[nx.Graph]]:
+        regimes = RollingNetworkAnimator._target_regimes(target, graphs.keys())
+        grouped: dict[int, list[nx.Graph]] = {0: [], 1: []}
+        for date, graph in graphs.items():
+            regime_value = regimes.get(date)
+            if regime_value in grouped:
+                grouped[regime_value].append(graph)
+        return grouped
+
+    @staticmethod
+    def _mean_curve(curves: list[dict[float | int, float]]) -> tuple[np.ndarray, np.ndarray]:
+        keys = sorted({key for curve in curves for key in curve})
+        x = np.array(keys, dtype=float)
+        y = []
+        for key in keys:
+            values = np.array([curve.get(key, np.nan) for curve in curves], dtype=float)
+            valid_values = values[np.isfinite(values)]
+            y.append(np.mean(valid_values) if valid_values.size else np.nan)
+        return x, np.array(y, dtype=float)
 
     @staticmethod
     def _rich_club_curve(
@@ -436,6 +660,18 @@ class RollingNetworkAnimator:
         ax.set_xlim(0, max(1, max_k))
         ax.set_ylim(*y_limits)
 
+    @staticmethod
+    def _apply_static_axis_scaling(ax: plt.Axes, xscale: str, yscale: str) -> None:
+        if xscale == "log":
+            ax.set_xscale("symlog", linthresh=1)
+        elif xscale != "linear":
+            raise ValueError("xscale must be either 'linear' or 'log'.")
+
+        if yscale == "log":
+            ax.set_yscale("log")
+        elif yscale != "linear":
+            raise ValueError("yscale must be either 'linear' or 'log'.")
+
     def _save_animation(
         self,
         animation: FuncAnimation,
@@ -450,4 +686,12 @@ class RollingNetworkAnimator:
         path = self.figures_dir / filename
         animation.save(path, writer=PillowWriter(fps=fps))
         plt.close(fig)
+        return path
+
+    def _save_figure(self, fig: plt.Figure, filename: str) -> Path:
+        self.figures_dir.mkdir(parents=True, exist_ok=True)
+        path = self.figures_dir / filename
+        fig.savefig(path, bbox_inches="tight", dpi=150)
+        plt.close(fig)
+        logger.info("Figure saved to %s", path)
         return path
