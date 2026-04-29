@@ -1,5 +1,4 @@
 import polars as pl
-from typing import Union
 import pandas as pd
 import numpy as np
 from abc import ABC, abstractmethod
@@ -240,7 +239,6 @@ class CreatePortfolio:
                     .sum()
                 )
             else:
-                w_final = 0.0
                 self.rebalanced_weights.iloc[t] = np.nan
 
                 # --- Turnover ---

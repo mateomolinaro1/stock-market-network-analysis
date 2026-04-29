@@ -37,6 +37,8 @@ class Config:
         self.rf_returns_filename: str|None = None
 
         # Data
+        self.start_date_assets: str|None = None
+        self.end_date_assets: str|None = None
         self.data_freq: str|None = None
         self.target_variable: str|None = None
         self.target_variable_rolling_window: int|None = None
@@ -69,6 +71,16 @@ class Config:
         self.halflife_corr: Optional[int] = None
         self.feature_modes: List[str] = ["all"]
         self.expanding_or_rolling: str = "rolling"
+
+        # Backtest (cross-sectional)
+        self.cs_backtest_transaction_costs_bps: int = 10
+        self.cs_backtest_percentiles_portfolios: List[int] = [10, 90]
+        self.cs_backtest_percentiles_winsorization: List[int] = [1, 99]
+        self.cs_backtest_rolling_window_metrics: int = 252
+        self.cs_backtest_node_features: List[str] = [
+            "degree", "strength", "abs_strength", "clustering",
+            "eigenvector_centrality", "pagerank", "core_number",
+        ]
 
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
@@ -117,6 +129,10 @@ class Config:
                     self.rf_returns_filename = config.get("AWS").get("S3").get("RF_RETURNS_FILENAME")
 
             # Data
+            if config.get("DATA").get("START_DATE_ASSETS") is not None:
+                self.start_date_assets = config.get("DATA").get("START_DATE_ASSETS")
+            if config.get("DATA").get("END_DATE_ASSETS") is not None:
+                self.end_date_assets = config.get("DATA").get("END_DATE_ASSETS")
             if config.get("DATA").get("DATA_FREQ") is not None:
                 self.data_freq = config.get("DATA").get("DATA_FREQ")
             if config.get("DATA").get("TARGET_VARIABLE") is not None:
@@ -180,3 +196,15 @@ class Config:
                 self.feature_modes = forecasting.get("FEATURE_MODES")
             if forecasting.get("EXPANDING_OR_ROLLING") is not None:
                 self.expanding_or_rolling = forecasting.get("EXPANDING_OR_ROLLING")
+
+            backtest = config.get("BACKTEST", {})
+            if backtest.get("TRANSACTION_COSTS_BPS") is not None:
+                self.cs_backtest_transaction_costs_bps = backtest["TRANSACTION_COSTS_BPS"]
+            if backtest.get("PERCENTILES_PORTFOLIOS") is not None:
+                self.cs_backtest_percentiles_portfolios = backtest["PERCENTILES_PORTFOLIOS"]
+            if backtest.get("PERCENTILES_WINSORIZATION") is not None:
+                self.cs_backtest_percentiles_winsorization = backtest["PERCENTILES_WINSORIZATION"]
+            if backtest.get("ROLLING_WINDOW_METRICS") is not None:
+                self.cs_backtest_rolling_window_metrics = backtest["ROLLING_WINDOW_METRICS"]
+            if backtest.get("NODE_FEATURES") is not None:
+                self.cs_backtest_node_features = backtest["NODE_FEATURES"]

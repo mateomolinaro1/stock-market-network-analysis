@@ -138,6 +138,16 @@ class DataManager:
         """
         asset_returns = self._get_asset_attribute()
         self.dates = sorted(asset_returns['date'].unique().tolist())
+
+        # restrict the dates to the specified date range in config if provided
+        if self.config.start_date_assets is not None:
+            start = pd.Timestamp(self.config.start_date_assets)
+            self.dates = [d for d in self.dates if pd.Timestamp(d) >= start]
+        if self.config.end_date_assets is not None:
+            end = pd.Timestamp(self.config.end_date_assets)
+            self.dates = [d for d in self.dates if pd.Timestamp(d) <= end]
+        logger.info(f"Universe dates set to {self.dates[0]} - {self.dates[-1]} after applying date filters from config.")
+
         self.universe = (
             asset_returns
             .sort_values(['date', 'permno'])
@@ -349,6 +359,12 @@ class DataManager:
         cropped = self.aligned_df.loc[first_idx:,:]
         self.aligned_df = cropped
         self._shift_target_variable()
+
+        # Log start and end dates of the aligned dataframe after cropping to target variable availability
+        if not self.aligned_df.empty:
+            logger.info(f"Aligned dataframe built with {len(self.aligned_df)} rows and {len(self.aligned_df.columns)} columns.")
+            logger.info(f"Start date of aligned dataframe: {self.aligned_df.index[0]}")
+            logger.info(f"End date of aligned dataframe: {self.aligned_df.index[-1]}")
 
         return
 

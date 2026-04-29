@@ -2,7 +2,7 @@
 A module for visualizing the results of the backtest, including equity curves, drawdowns, and cumulative performance.
 """
 import matplotlib.pyplot as plt
-from nlp_quant_strat.backtester.analysis import PerformanceAnalyser
+from stock_mkt_network_analysis.backtester.analysis import PerformanceAnalyser
 import pandas as pd
 import numpy as np
 from itertools import cycle

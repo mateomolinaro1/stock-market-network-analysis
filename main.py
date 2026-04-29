@@ -12,6 +12,8 @@ from stock_mkt_network_analysis.utils.corr_cache import compute_corr_cache_key
 from stock_mkt_network_analysis.utils.ts_cache import compute_ts_cache_key
 from stock_mkt_network_analysis.utils.graph_features_cache import compute_graph_features_cache_key
 from stock_mkt_network_analysis.utils.node_features_cache import compute_node_features_cache_key
+from stock_mkt_network_analysis.experiments.timing_backtest import run_oracle_timing_backtest
+from stock_mkt_network_analysis.experiments.cross_sectional_backtest import run_network_cross_sectional_backtest
 
 
 def main():
@@ -27,23 +29,23 @@ def main():
     feature_pipeline = build_feature_pipeline(config)
 
     # -------------------------------------------------------------
-    # Main pipeline — 4 steps tracked by tqdm
+    # Main pipeline — 7 steps tracked by tqdm
     # -------------------------------------------------------------
-    with tqdm(total=4, desc="Pipeline", unit="step", position=0) as pbar:
+    with tqdm(total=7, desc="Pipeline", unit="step", position=0) as pbar:
 
-        # Step 1 — Data
+        # ── Step 1 — Data ─────────────────────────────────────
         pbar.set_description("Loading data")
         data_manager.load_data()
         # Analytics must be constructed after load_data so aligned_df is populated
         an = Analytics(config=config, data=data_manager)
         pbar.update(1)
 
-        # Step 2 — Feature pipeline cache (rolling correlations + TS features)
+        # ── Step 2 — Feature pipeline cache ───────────────────
         pbar.set_description("Precomputing feature pipeline cache")
-        corr_cache_key = compute_corr_cache_key(config, data_manager.network_returns)
-        ts_cache_key = compute_ts_cache_key(config, data_manager.network_returns)
+        corr_cache_key          = compute_corr_cache_key(config, data_manager.network_returns)
+        ts_cache_key            = compute_ts_cache_key(config, data_manager.network_returns)
         graph_features_cache_key = compute_graph_features_cache_key(config, data_manager.network_returns)
-        node_features_cache_key = compute_node_features_cache_key(config, data_manager.network_returns)
+        node_features_cache_key  = compute_node_features_cache_key(config, data_manager.network_returns)
         feature_pipeline.precompute_cache(
             returns=data_manager.network_returns,
             market_returns=data_manager.mkt_returns,
@@ -67,22 +69,66 @@ def main():
         )
         pbar.update(1)
 
-        ######################################################
-        ### CV part ##########################################
-        ######################################################
+        # ── Step 3 — Walk-forward CV ───────────────────────────
         pbar.set_description("Walk-forward CV")
-        cv_result = run_cv(data_manager, feature_pipeline, config)
+        cv_result         = run_cv(data_manager, feature_pipeline, config)
         predictions       = cv_result.predictions
         selection_history = cv_result.selection_history
         oos_metrics       = cv_result.oos_metrics
         pbar.update(1)
 
-        ######################################################
-        ### Analytics ########################################
-        ######################################################
+        # ── Step 4 — Analytics ────────────────────────────────
         pbar.set_description("Analytics")
         an.get_analytics(corr_cache=feature_pipeline._corr_cache)
         pbar.update(1)
+
+        # ######################################################
+        # ### BACKTEST #########################################
+        # ######################################################
+        #
+        # # ── Step 5 — Oracle timing backtest ───────────────────
+        # # Perfect-foresight upper bound: invest in market when
+        # # regime=0, switch to risk-free for the 21-day crisis
+        # # window whenever the oracle target fires.
+        # pbar.set_description("Backtest — oracle timing")
+        # oracle_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_oracle_timing"
+        # run_oracle_timing_backtest(config, data_manager, oracle_output_dir)
+        # pbar.update(1)
+        #
+        # # ── Step 6 — Prediction-based timing backtest ─────────
+        # # Use the walk-forward CV predictions (from Step 3) as a
+        # # market-timing signal: predicted regime=1 → risk-free,
+        # # regime=0 → market.  Same backtester structure as the
+        # # oracle, but driven by model output instead of the oracle.
+        # #
+        # # TODO: implement run_prediction_timing_backtest()
+        # #   Inputs:
+        # #     config         — Config
+        # #     data_manager   — DataManager (already loaded)
+        # #     predictions    — cv_result.predictions  (date × model columns,
+        # #                      values = predicted probabilities or binary labels)
+        # #     output_dir     — Path
+        # pbar.set_description("Backtest — prediction timing")
+        # # prediction_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_prediction_timing"
+        # # run_prediction_timing_backtest(config, data_manager, predictions, prediction_output_dir)
+        # pbar.update(1)
+        #
+        # # ── Step 7 — Cross-sectional network feature backtest ──
+        # # Use asset-level (node) network features as cross-sectional
+        # # signals for a long-only stock-selection strategy.
+        # # For each (feature, threshold) pair, runs long-top and long-bottom
+        # # equal-weight portfolios with a 1-day implementation lag.
+        # # Saves per-feature plots in output_dir/[feature_name]/threshold_[t]/
+        # # and a combined cumulative chart in output_dir/combined/threshold_[t]/
+        # pbar.set_description("Backtest — cross-sectional network")
+        # cs_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_cross_sectional"
+        # run_network_cross_sectional_backtest(
+        #     config, data_manager,
+        #     feature_pipeline._node_feature_cache,
+        #     config.threshold_grid,
+        #     cs_output_dir,
+        # )
+        # pbar.update(1)
 
 
 if __name__ == "__main__":

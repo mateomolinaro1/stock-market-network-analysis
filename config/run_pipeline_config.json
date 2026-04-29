@@ -5,15 +5,17 @@
     "OUTPUT_FORMAT": "json",
     "FILENAMES_TO_LOAD": [
       "data/wrds_funda_gross_query.parquet",
-      "data/wrds_gross_query_small.parquet",
+      "data/wrds_gross_query.parquet",
       "data/russell_returns.parquet",
       "data/risk_free_returns.parquet"
     ],
-    "DATES_FILENAME": "data/wrds_gross_query_small.parquet",
+    "DATES_FILENAME": "data/wrds_gross_query.parquet",
     "MKT_RETURNS_FILENAME": "data/russell_returns.parquet",
     "RF_RETURNS_FILENAME": "data/risk_free_returns.parquet"
   }},
   "DATA": {
+    "START_DATE_ASSETS": "2013-01-01",
+    "END_DATE_ASSETS": null,
     "DATA_FREQ": "d",
     "TARGET_VARIABLE": "dummy_forward_max_drawdown",
     "TARGET_VARIABLE_ROLLING_WINDOW": 21,
@@ -30,27 +32,56 @@
     "INNER_VAL_SIZE": 42,
     "INNER_STEP_SIZE": 1,
     "SCORING_METRIC": "pr_auc",
-    "LOAD_OR_COMPUTE_CV": "load",
-    "SAVE_CV": false,
-    "LOAD_OR_COMPUTE_CORR": "load",
-    "SAVE_CORR": false,
-    "LOAD_OR_COMPUTE_TS": "load",
-    "SAVE_TS": false,
-    "LOAD_OR_COMPUTE_GRAPH_FEATURES": "load",
-    "SAVE_GRAPH_FEATURES": false,
-    "LOAD_OR_COMPUTE_NODE_FEATURES": "load",
-    "SAVE_NODE_FEATURES": false,
+    "LOAD_OR_COMPUTE_CV": "compute",
+    "SAVE_CV": true,
+    "LOAD_OR_COMPUTE_CORR": "compute",
+    "SAVE_CORR": true,
+    "LOAD_OR_COMPUTE_TS": "compute",
+    "SAVE_TS": true,
+    "LOAD_OR_COMPUTE_GRAPH_FEATURES": "compute",
+    "SAVE_GRAPH_FEATURES": true,
+    "LOAD_OR_COMPUTE_NODE_FEATURES": "compute",
+    "SAVE_NODE_FEATURES": true,
     "HALFLIFE_CORR": 63,
     "EXPANDING_OR_ROLLING": "expanding",
-    "FEATURE_MODES": ["ts"],
+    "FEATURE_MODES": ["ts", "network", "all"],
     "THRESHOLD_GRID": [0.75],
     "MODEL_GRID": [
       {
         "model": "LogisticRegression",
         "scale": true,
         "model_kwargs": {"solver": "saga", "l1_ratio": 1, "class_weight": "balanced", "max_iter": 2000},
-        "param_grid": [{"C": 0.1}]
+        "param_grid": [{"C": 0.01}, {"C": 0.1}, {"C": 1.0}]
+      },
+      {
+        "model": "RandomForestClassifier",
+        "scale": false,
+        "model_kwargs": {"class_weight": "balanced", "random_state": 42},
+        "param_grid": [
+          {"n_estimators": 200, "max_depth": 5},
+          {"n_estimators": 200, "max_depth": 10}
+        ]
+      },
+      {
+        "model": "GradientBoostingClassifier",
+        "scale": false,
+        "model_kwargs": {"random_state": 42},
+        "param_grid": [
+          {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.05},
+          {"n_estimators": 100, "max_depth": 10, "learning_rate": 0.1}
+        ]
       }
+
+    ]
+  },
+  "BACKTEST": {
+    "TRANSACTION_COSTS_BPS": 10,
+    "PERCENTILES_PORTFOLIOS": [10, 90],
+    "PERCENTILES_WINSORIZATION": [1, 99],
+    "ROLLING_WINDOW_METRICS": 252,
+    "NODE_FEATURES": [
+      "degree", "strength", "abs_strength", "clustering",
+      "eigenvector_centrality", "pagerank", "core_number"
     ]
   }
 }

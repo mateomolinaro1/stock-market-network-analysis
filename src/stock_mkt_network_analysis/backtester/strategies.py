@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Union, Tuple
 import pandas as pd
 import numpy as np
-import nlp_quant_strat.backtester.utilities as utilities
+import stock_mkt_network_analysis.backtester.utilities as utilities
 
 class Strategy(ABC):
     """Abstract class to define the interface for the strategy"""

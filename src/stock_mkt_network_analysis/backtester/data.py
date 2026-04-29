@@ -2,12 +2,10 @@ import pandas as pd
 from abc import ABC, abstractmethod
 from pathlib import Path
 import logging
-from botocore.client import BaseClient
 import io
 import pickle
-from typing import Union, Dict
+from typing import Union
 import boto3
-import os
 
 logger = logging.getLogger(__name__)
 
