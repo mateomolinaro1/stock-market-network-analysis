@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import json
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -10,6 +10,57 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class NetworkAnalyticsConfig:
+    """
+    Configuration for network plots and animations.
+    """
+    max_frames: Optional[int] = 180
+    normalize_degree_counts: bool = True
+    degree_xscale: str = "log"
+    degree_yscale: str = "log"
+    degree_y_max_quantile: Optional[float] = None
+    degree_plot_kind: str = "pmf"
+    degree_log_bins: int = 30
+    degree_threshold: Optional[int] = None
+    normalize_rich_club: bool = True
+    n_random_reference: int = 3
+    random_swaps_per_edge: int = 5
+    rich_club_xscale: str = "log"
+    rich_club_yscale: str = "linear"
+    regime_max_dates: Optional[int] = None
+    show_power_law: bool = True
+    power_law_min_degree: Optional[float] = None
+    power_law_max_degree: Optional[float] = None
+    degree_mixing_n_bins: int = 15
+    degree_mixing_max_points_per_regime: int = 15000
+
+    @classmethod
+    def from_dict(cls, raw: Optional[Dict[str, Any]]) -> "NetworkAnalyticsConfig":
+        if raw is None:
+            return cls()
+
+        valid_fields = cls.__dataclass_fields__
+        values = {key.lower(): value for key, value in raw.items()}
+        nullable_fields = {
+            "max_frames",
+            "degree_y_max_quantile",
+            "degree_threshold",
+            "regime_max_dates",
+            "power_law_min_degree",
+            "power_law_max_degree",
+        }
+        parsed = {}
+        for key in valid_fields:
+            if key not in values:
+                continue
+            if values[key] is None and key not in nullable_fields:
+                continue
+            parsed[key] = values[key]
+        return cls(**parsed)
+
 
 @dataclass
 class Config:
@@ -61,6 +112,7 @@ class Config:
         self.halflife_corr: Optional[int] = None
         self.feature_modes: List[str] = ["all"]
         self.expanding_or_rolling: str = "rolling"
+        self.network_analytics: NetworkAnalyticsConfig = NetworkAnalyticsConfig()
 
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
@@ -156,3 +208,8 @@ class Config:
                 self.feature_modes = forecasting.get("FEATURE_MODES")
             if forecasting.get("EXPANDING_OR_ROLLING") is not None:
                 self.expanding_or_rolling = forecasting.get("EXPANDING_OR_ROLLING")
+
+            # Network analytics plots/animations
+            self.network_analytics = NetworkAnalyticsConfig.from_dict(
+                config.get("NETWORK_ANALYTICS")
+            )

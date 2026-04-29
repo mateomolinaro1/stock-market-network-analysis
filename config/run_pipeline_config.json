@@ -44,5 +44,26 @@
         "param_grid": [{"C": 0.1}]
       }
     ]
+  },
+  "NETWORK_ANALYTICS": {
+    "MAX_FRAMES": 180,
+    "NORMALIZE_DEGREE_COUNTS": true,
+    "DEGREE_XSCALE": "log",
+    "DEGREE_YSCALE": "log",
+    "DEGREE_Y_MAX_QUANTILE": null,
+    "DEGREE_PLOT_KIND": "pmf",
+    "DEGREE_LOG_BINS": null,
+    "DEGREE_THRESHOLD": null,
+    "NORMALIZE_RICH_CLUB": true,
+    "N_RANDOM_REFERENCE": 3,
+    "RANDOM_SWAPS_PER_EDGE": 5,
+    "RICH_CLUB_XSCALE": "log",
+    "RICH_CLUB_YSCALE": "linear",
+    "REGIME_MAX_DATES": null,
+    "SHOW_POWER_LAW": true,
+    "POWER_LAW_MIN_DEGREE": null,
+    "POWER_LAW_MAX_DEGREE": null,
+    "DEGREE_MIXING_N_BINS": 15,
+    "DEGREE_MIXING_MAX_POINTS_PER_REGIME": 15000
   }
 }
