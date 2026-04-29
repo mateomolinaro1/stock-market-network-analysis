@@ -69,13 +69,18 @@ class RollingNetworkAnimator:
 
         returns = returns.sort_index()
         if self.corr_cache is None:
-            self.corr_cache = self.correlation_estimator.compute_rolling(returns)
-        corr_cache = self.corr_cache
-        dates = self._select_dates(corr_cache.keys(), start_date, end_date, max_frames)
+            eligible_dates = returns.index[self.correlation_estimator.lookback:]
+            dates = self._select_dates(eligible_dates, start_date, end_date, max_frames)
+            corr_items = (
+                (date, self.correlation_estimator.compute_for_date(returns, date))
+                for date in dates
+            )
+        else:
+            dates = self._select_dates(self.corr_cache.keys(), start_date, end_date, max_frames)
+            corr_items = ((date, self.corr_cache[date]) for date in dates)
 
         graphs: Dict[pd.Timestamp, nx.Graph] = {}
-        for date in dates:
-            corr = corr_cache[date]
+        for date, corr in corr_items:
             if corr.empty:
                 continue
             graphs[pd.Timestamp(date)] = self.graph_builder.build(corr, self.threshold)
@@ -100,7 +105,11 @@ class RollingNetworkAnimator:
         yscale: str = "linear",
         y_max_quantile: Optional[float] = None,
         plot_kind: str = "hist",
+        log_bins: int = 30,
         target: Optional[pd.Series | pd.DataFrame] = None,
+        show_power_law: bool = False,
+        power_law_min_degree: Optional[float] = None,
+        power_law_max_degree: Optional[float] = None,
     ) -> Path:
         """
         Animate the unweighted degree distribution through time.
@@ -117,6 +126,7 @@ class RollingNetworkAnimator:
             y_max_quantile=y_max_quantile,
             yscale=yscale,
             plot_kind=plot_kind,
+            log_bins=log_bins,
         )
 
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -128,17 +138,41 @@ class RollingNetworkAnimator:
 
             ax.clear()
             if plot_kind == "hist":
-                ax.hist(degrees, bins=bins, density=normalize_counts, color="#2a9d8f", edgecolor="white")
+                counts, edges, _ = ax.hist(
+                    degrees,
+                    bins=bins,
+                    density=normalize_counts,
+                    color="#2a9d8f",
+                    edgecolor="white",
+                )
+                x_values = (edges[:-1] + edges[1:]) / 2
+                y_values = counts
                 ylabel = "Density" if normalize_counts else "Number of nodes"
             elif plot_kind == "pmf":
-                k_values, probabilities = self._degree_pmf(degrees)
-                ax.scatter(k_values, probabilities, color="#e76f00", s=36)
-                ax.plot(k_values, probabilities, color="#e76f00", alpha=0.35)
+                x_values, y_values = self._degree_pmf(degrees)
+                ax.scatter(x_values, y_values, color="#e76f00", s=36)
+                ax.plot(x_values, y_values, color="#e76f00", alpha=0.35)
+                ylabel = "P(k)"
+            elif plot_kind == "log_binned":
+                x_values, y_values = self._degree_log_binned_density(degrees, log_bins)
+                ax.loglog(x_values, y_values, "o", color="#e76f00", markersize=6)
                 ylabel = "P(k)"
             else:
-                raise ValueError("plot_kind must be either 'hist' or 'pmf'.")
+                raise ValueError("plot_kind must be one of 'hist', 'pmf', or 'log_binned'.")
 
-            self._apply_degree_axis_scaling(ax, max_degree, xscale, yscale, y_limits)
+            if show_power_law:
+                self._plot_power_law_fit(
+                    ax,
+                    np.asarray(x_values, dtype=float),
+                    np.asarray(y_values, dtype=float),
+                    "#111111",
+                    None,
+                    power_law_min_degree,
+                    power_law_max_degree,
+                )
+                ax.legend()
+
+            self._apply_degree_axis_scaling(ax, max_degree, xscale, yscale, y_limits, plot_kind)
             ax.set_title(f"Degree distribution - {date:%Y-%m-%d}")
             ax.set_xlabel("Degree")
             ax.set_ylabel(ylabel)
@@ -235,6 +269,7 @@ class RollingNetworkAnimator:
         xscale: str = "log",
         yscale: str = "log",
         plot_kind: str = "pmf",
+        log_bins: int = 30,
     ) -> Path:
         """
         Plot average degree distributions by target regime over the selected period.
@@ -267,16 +302,126 @@ class RollingNetworkAnimator:
                     curves.append(dict(zip(k_values, probabilities)))
                 x, y = self._mean_curve(curves)
                 ylabel = "P(k)"
+            elif plot_kind == "log_binned":
+                curves = []
+                for graph in graph_list:
+                    degrees = [degree for _, degree in graph.degree()]
+                    k_values, densities = self._degree_log_binned_density(degrees, log_bins)
+                    curves.append(dict(zip(k_values, densities)))
+                x, y = self._mean_curve(curves)
+                ylabel = "P(k)"
             else:
-                raise ValueError("plot_kind must be either 'hist' or 'pmf'.")
+                raise ValueError("plot_kind must be one of 'hist', 'pmf', or 'log_binned'.")
 
             if yscale == "log":
                 y = np.where(y > 0, y, np.nan)
-            ax.plot(x, y, marker="o", label=label, color=color)
+            if plot_kind == "log_binned":
+                ax.loglog(x, y, "o-", label=label, color=color)
+            else:
+                ax.plot(x, y, marker="o", label=label, color=color)
 
         ax.set_title("Average degree distribution by regime")
         ax.set_xlabel("Degree")
         ax.set_ylabel(ylabel)
+        self._apply_static_axis_scaling(ax, xscale, yscale)
+        if plot_kind == "log_binned":
+            ax.set_xscale("log")
+            if yscale == "log":
+                ax.set_yscale("log")
+        ax.legend()
+        ax.grid(alpha=0.3)
+        return self._save_figure(fig, filename)
+
+    def plot_degree_mixing_scatter_per_regime(
+        self,
+        returns: pd.DataFrame,
+        target: pd.Series | pd.DataFrame,
+        start_date: Optional[pd.Timestamp | str] = None,
+        end_date: Optional[pd.Timestamp | str] = None,
+        max_dates: Optional[int] = None,
+        n_bins: int = 15,
+        max_points_per_regime: int = 15000,
+        xscale: str = "log",
+        yscale: str = "log",
+    ) -> dict[str, Path]:
+        """
+        Plot one degree-mixing scatter graph per regime, with binned mean points.
+        """
+        graphs = self.build_graphs(returns, start_date, end_date, max_dates)
+        regime_graphs = self._split_graphs_by_regime(graphs, target)
+
+        paths: dict[str, Path] = {}
+        for regime_value, label, color in self._regime_specs():
+            x, y = self._degree_mixing_points(regime_graphs.get(regime_value, []))
+            x_bin, y_bin = self._binned_mean(x, y, n_bins=n_bins, xscale=xscale)
+            x_scatter, y_scatter = self._downsample_points(x, y, max_points_per_regime)
+            if x_scatter.size == 0 and x_bin.size == 0:
+                continue
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            if x_scatter.size > 0:
+                ax.scatter(
+                    x_scatter,
+                    y_scatter,
+                    s=10,
+                    alpha=0.18,
+                    color=color,
+                    label="Node-date points",
+                )
+            if x_bin.size > 0:
+                ax.scatter(
+                    x_bin,
+                    y_bin,
+                    s=70,
+                    color="#111111",
+                    edgecolor="white",
+                    linewidth=0.8,
+                    zorder=3,
+                    label="Binned mean",
+                )
+                ax.plot(x_bin, y_bin, color="#111111", linewidth=1.2, alpha=0.75, zorder=2)
+
+            ax.set_title(f"Degree mixing - {label}")
+            ax.set_xlabel("Degree k")
+            ax.set_ylabel("Average neighbor degree k_nn(k)")
+            self._apply_static_axis_scaling(ax, xscale, yscale)
+            ax.legend()
+            ax.grid(alpha=0.3)
+
+            suffix = "normal" if regime_value == 0 else "tendu"
+            paths[suffix] = self._save_figure(fig, f"degree_mixing_scatter_regime_{suffix}.png")
+
+        return paths
+
+    def plot_degree_mixing_binned_by_regime(
+        self,
+        returns: pd.DataFrame,
+        target: pd.Series | pd.DataFrame,
+        start_date: Optional[pd.Timestamp | str] = None,
+        end_date: Optional[pd.Timestamp | str] = None,
+        filename: str = "degree_mixing_binned_by_regime.png",
+        max_dates: Optional[int] = None,
+        n_bins: int = 15,
+        xscale: str = "log",
+        yscale: str = "log",
+    ) -> Path:
+        """
+        Plot binned average neighbor degree k_nn(k) by regime.
+        """
+        graphs = self.build_graphs(returns, start_date, end_date, max_dates)
+        regime_graphs = self._split_graphs_by_regime(graphs, target)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for regime_value, label, color in self._regime_specs():
+            x, y = self._degree_mixing_points(regime_graphs.get(regime_value, []))
+            x_bin, y_bin = self._binned_mean(x, y, n_bins=n_bins, xscale=xscale)
+            if x_bin.size == 0:
+                continue
+            ax.plot(x_bin, y_bin, marker="o", color=color, label=label)
+
+        ax.set_title("Binned degree mixing by regime")
+        ax.set_xlabel("Degree k")
+        ax.set_ylabel("Average neighbor degree k_nn(k)")
         self._apply_static_axis_scaling(ax, xscale, yscale)
         ax.legend()
         ax.grid(alpha=0.3)
@@ -448,6 +593,113 @@ class RollingNetworkAnimator:
         return x, np.array(y, dtype=float)
 
     @staticmethod
+    def _degree_mixing_points(graphs: list[nx.Graph]) -> tuple[np.ndarray, np.ndarray]:
+        x_values = []
+        y_values = []
+        for graph in graphs:
+            degrees = dict(graph.degree())
+            for node, degree in degrees.items():
+                neighbor_degrees = [degrees[neighbor] for neighbor in graph.neighbors(node)]
+                if not neighbor_degrees:
+                    continue
+                x_values.append(float(degree))
+                y_values.append(float(np.mean(neighbor_degrees)))
+        return np.array(x_values, dtype=float), np.array(y_values, dtype=float)
+
+    @staticmethod
+    def _downsample_points(
+        x: np.ndarray,
+        y: np.ndarray,
+        max_points: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if max_points <= 0 or x.size <= max_points:
+            return x, y
+
+        positions = np.linspace(0, x.size - 1, max_points).round().astype(int)
+        positions = np.unique(positions)
+        return x[positions], y[positions]
+
+    @staticmethod
+    def _binned_mean(
+        x: np.ndarray,
+        y: np.ndarray,
+        n_bins: int,
+        xscale: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        valid = np.isfinite(x) & np.isfinite(y)
+        if xscale == "log":
+            valid &= x > 0
+        x = x[valid]
+        y = y[valid]
+
+        if x.size == 0:
+            return np.array([]), np.array([])
+
+        if n_bins < 2:
+            raise ValueError("n_bins must be at least 2.")
+
+        if xscale == "log":
+            xmin = max(float(x.min()), 1e-8)
+            xmax = float(x.max())
+            if xmin == xmax:
+                return np.array([xmin]), np.array([float(np.mean(y))])
+            bins = np.geomspace(xmin, xmax, n_bins + 1)
+        elif xscale == "linear":
+            xmin = float(x.min())
+            xmax = float(x.max())
+            if xmin == xmax:
+                return np.array([xmin]), np.array([float(np.mean(y))])
+            bins = np.linspace(xmin, xmax, n_bins + 1)
+        else:
+            raise ValueError("xscale must be either 'linear' or 'log'.")
+
+        bin_ids = np.digitize(x, bins, right=False) - 1
+        x_bin = []
+        y_bin = []
+        for bin_idx in range(n_bins):
+            mask = bin_ids == bin_idx
+            if not np.any(mask):
+                continue
+            x_bin.append(float(np.mean(x[mask])))
+            y_bin.append(float(np.mean(y[mask])))
+        return np.array(x_bin), np.array(y_bin)
+
+    @staticmethod
+    def _plot_power_law_fit(
+        ax: plt.Axes,
+        x: np.ndarray,
+        y: np.ndarray,
+        color: str,
+        label: Optional[str],
+        min_degree: Optional[float],
+        max_degree: Optional[float],
+    ) -> None:
+        valid = np.isfinite(x) & np.isfinite(y) & (x > 0) & (y > 0)
+        if min_degree is not None:
+            valid &= x >= min_degree
+        if max_degree is not None:
+            valid &= x <= max_degree
+
+        x_fit = x[valid]
+        y_fit = y[valid]
+        if x_fit.size < 3:
+            return
+
+        slope, intercept = np.polyfit(np.log(x_fit), np.log(y_fit), 1)
+        y_hat = np.exp(intercept) * np.power(x_fit, slope)
+        order = np.argsort(x_fit)
+        fit_label = f"{label} power-law alpha={-slope:.2f}" if label else f"power-law alpha={-slope:.2f}"
+        ax.plot(
+            x_fit[order],
+            y_hat[order],
+            linestyle="--",
+            linewidth=1.4,
+            color=color,
+            alpha=0.85,
+            label=fit_label,
+        )
+
+    @staticmethod
     def _rich_club_curve(
         graph: nx.Graph,
         normalized: bool = False,
@@ -539,6 +791,7 @@ class RollingNetworkAnimator:
         y_max_quantile: Optional[float],
         yscale: str,
         plot_kind: str,
+        log_bins: int = 30,
     ) -> tuple[float, float]:
         maxima = []
         positive_values = []
@@ -553,8 +806,10 @@ class RollingNetworkAnimator:
             elif plot_kind == "pmf":
                 _, counts = np.unique(degrees, return_counts=True)
                 counts = counts.astype(float) / len(degrees)
+            elif plot_kind == "log_binned":
+                _, counts = RollingNetworkAnimator._degree_log_binned_density(degrees, log_bins)
             else:
-                raise ValueError("plot_kind must be either 'hist' or 'pmf'.")
+                raise ValueError("plot_kind must be one of 'hist', 'pmf', or 'log_binned'.")
 
             if counts.size:
                 maxima.append(float(counts.max()))
@@ -591,14 +846,43 @@ class RollingNetworkAnimator:
         return values, probabilities
 
     @staticmethod
+    def _degree_log_binned_density(
+        degrees: list[int],
+        n_bins: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        positive_degrees = np.array([degree for degree in degrees if degree > 0], dtype=float)
+        if positive_degrees.size == 0:
+            return np.array([]), np.array([])
+        if n_bins < 2:
+            raise ValueError("n_bins must be at least 2.")
+
+        kmin = float(positive_degrees.min())
+        kmax = float(positive_degrees.max())
+        if kmin == kmax:
+            return np.array([kmin]), np.array([1.0])
+
+        bins = np.logspace(np.log10(kmin), np.log10(kmax), num=n_bins)
+        if bins.size < 2:
+            return np.array([]), np.array([])
+
+        densities, edges = np.histogram(positive_degrees, bins=bins, density=True)
+        centers = np.sqrt(edges[:-1] * edges[1:])
+        valid = np.isfinite(densities) & (densities > 0) & np.isfinite(centers) & (centers > 0)
+        return centers[valid], densities[valid]
+
+    @staticmethod
     def _apply_degree_axis_scaling(
         ax: plt.Axes,
         max_degree: int,
         xscale: str,
         yscale: str,
         y_limits: tuple[float, float],
+        plot_kind: str = "hist",
     ) -> None:
-        if xscale == "log":
+        if xscale == "log" and plot_kind == "log_binned":
+            ax.set_xscale("log")
+            ax.set_xlim(0.8, max(1.5, max_degree + 0.5))
+        elif xscale == "log":
             ax.set_xscale("symlog", linthresh=1)
             ax.set_xlim(-0.5, max(1.5, max_degree + 0.5))
         elif xscale == "linear":
