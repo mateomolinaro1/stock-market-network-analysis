@@ -160,7 +160,11 @@ def _plot_feature_cumulative(
         f"Long Top:    ret={m_t['annualized_return']:.2%}, vol={m_t['annualized_volatility']:.2%}, "
         f"SR={m_t['annualized_sharpe_ratio']:.2f}, maxDD={m_t['max_drawdown']:.2%}\n"
         f"Long Bottom: ret={m_b['annualized_return']:.2%}, vol={m_b['annualized_volatility']:.2%}, "
-        f"SR={m_b['annualized_sharpe_ratio']:.2f}, maxDD={m_b['max_drawdown']:.2%}",
+        f"SR={m_b['annualized_sharpe_ratio']:.2f}, maxDD={m_b['max_drawdown']:.2%}\n"
+        f"Benchmark:   ret={_scalar(m_t['annualized_return_bench']):.2%}, "
+        f"vol={_scalar(m_t['annualized_volatility_bench']):.2%}, "
+        f"SR={_scalar(m_t['annualized_sharpe_ratio_bench']):.2f}, "
+        f"maxDD={_scalar(m_t['max_drawdown_bench']):.2%}",
         fontsize=10,
     )
     ax.set_xlabel("Date")
@@ -212,6 +216,31 @@ def _plot_combined_cumulative(
     fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight", dpi=150)
     plt.close(fig)
+
+
+# ── Summary table ──────────────────────────────────────────────────────────
+
+
+def _print_summary_table(rows: list, threshold: float) -> None:
+    """Print all strategies + benchmark sorted by Sharpe ratio descending."""
+    if not rows:
+        return
+    sorted_rows = sorted(rows, key=lambda r: r["SR"], reverse=True)
+    W = 76
+    print()
+    print("=" * W)
+    print(f"  SUMMARY — threshold = {threshold}  (sorted by Sharpe Ratio ↓)")
+    print("=" * W)
+    print(f"  {'Strategy':<36} {'TotRet':>8}  {'AnnRet':>8}  {'Vol':>8}  {'SR':>6}  {'MaxDD':>9}")
+    print("-" * W)
+    for r in sorted_rows:
+        tag = " ★" if r.get("is_bench") else ""
+        print(
+            f"  {r['Strategy'] + tag:<36} {r['TotRet']:>8.2%}  {r['AnnRet']:>8.2%}  "
+            f"{r['Vol']:>8.2%}  {r['SR']:>6.2f}  {r['MaxDD']:>9.2%}"
+        )
+    print("=" * W)
+    print("  ★ = benchmark")
 
 
 # ── Main entry point ────────────────────────────────────────────────────────
@@ -274,6 +303,8 @@ def run_network_cross_sectional_backtest(
 
         all_cum_perfs: Dict[str, pd.Series] = {}
         bench_cum_ref: pd.DataFrame | None = None
+        summary_rows:  list = []
+        bench_row:     dict | None = None
 
         print()
         print("=" * 70)
@@ -337,6 +368,37 @@ def run_network_cross_sectional_backtest(
 
             _print_feature_summary(feature_name, threshold, perf_top, perf_bot, len(top_net))
 
+            # ── Accumulate for summary table ─────────────────────
+            m_t = perf_top.metrics
+            m_b = perf_bot.metrics
+            summary_rows.append({
+                "Strategy": f"{feature_name} (top)",
+                "TotRet": m_t["total_return"],
+                "AnnRet": m_t["annualized_return"],
+                "Vol":    m_t["annualized_volatility"],
+                "SR":     m_t["annualized_sharpe_ratio"],
+                "MaxDD":  m_t["max_drawdown"],
+                "is_bench": False,
+            })
+            summary_rows.append({
+                "Strategy": f"{feature_name} (bottom)",
+                "TotRet": m_b["total_return"],
+                "AnnRet": m_b["annualized_return"],
+                "Vol":    m_b["annualized_volatility"],
+                "SR":     m_b["annualized_sharpe_ratio"],
+                "MaxDD":  m_b["max_drawdown"],
+                "is_bench": False,
+            })
+            bench_row = {
+                "Strategy": f"Buy & Hold ({mkt_col})",
+                "TotRet": _scalar(m_t["total_return_bench"]),
+                "AnnRet": _scalar(m_t["annualized_return_bench"]),
+                "Vol":    _scalar(m_t["annualized_volatility_bench"]),
+                "SR":     _scalar(m_t["annualized_sharpe_ratio_bench"]),
+                "MaxDD":  _scalar(m_t["max_drawdown_bench"]),
+                "is_bench": True,
+            }
+
             # ── Per-feature plots ────────────────────────────────
             feat_dir = output_dir / feature_name / f"threshold_{thr_str}"
             feat_dir.mkdir(parents=True, exist_ok=True)
@@ -396,5 +458,11 @@ def run_network_cross_sectional_backtest(
             logger.info(
                 "Combined chart for threshold %s saved to %s", threshold, combined_dir,
             )
+
+        # ── Summary table for this threshold ─────────────────────
+        if summary_rows:
+            if bench_row is not None:
+                summary_rows.append(bench_row)
+            _print_summary_table(summary_rows, threshold)
 
     logger.info("Cross-sectional backtest complete. Figures saved to %s", output_dir)

@@ -17,17 +17,26 @@
 \usepackage[a4paper, left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm]{geometry}
 \usepackage{longtable}
 \usepackage{comment}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{listings}
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible
+}
 
-\title{Stock Market Network Analysis for Crisis Prediction}
-\author{Matéo Molinaro}
-\date{2026}
+\title{US Stock Market Network Analysis for Crisis Prediction}
+\author{Matéo Molinaro - Habib Karamoko}
+\date{30 April 2026}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-This paper investigates whether the topology of stock correlation networks conveys predictive information about future equity market crises. We model the cross-sectional dependence structure of large-cap U.S. equities as a dynamic weighted graph, constructed from rolling Ledoit--Wolf shrinkage correlation matrices with exponential time-weighting, and threshold these matrices to retain economically meaningful co-movement links. We extract two complementary feature sets: graph-level network statistics summarising the global topology at each date, and time-series features capturing the dynamics of the market return distribution over multiple horizons. These features serve as inputs to a binary classification framework that predicts whether the forward 21-day maximum drawdown will exceed a crisis threshold, evaluated strictly out-of-sample through an expanding walk-forward cross-validation scheme. In addition to the predictive exercise, we construct a panel of per-stock network centrality measures ---degree, strength, clustering, eigenvector centrality, PageRank, and community membership--- that can serve as the basis for cross-sectional investment strategies. Our methodology provides a replicable, modular pipeline for translating network topology into actionable financial signals.
+This paper investigates whether the topology of stock correlation networks conveys predictive information about future equity market crises. We model the cross-sectional dependence structure of large-cap U.S. equities as a dynamic weighted graph, constructed from rolling Ledoit--Wolf shrinkage correlation matrices with exponential time-weighting, and threshold these matrices to retain economically meaningful co-movement links. We extract two complementary feature sets: graph-level network statistics summarising the global topology at each date, and time-series features capturing the dynamics of the market return distribution over multiple horizons. These features serve as inputs to a binary classification framework that predicts whether the forward 21-day maximum drawdown will exceed a crisis threshold, evaluated strictly out-of-sample through an expanding walk-forward cross-validation scheme. In addition to the predictive exercise, we construct a panel of per-stock network centrality measures: degree, strength, clustering, eigenvector centrality, PageRank, and community membership that can serve as the basis for cross-sectional investment strategies. Our methodology provides a replicable, modular pipeline for translating network topology into actionable financial signals.
 \end{abstract}
 
 \tableofcontents
@@ -35,9 +44,9 @@ This paper investigates whether the topology of stock correlation networks conve
 
 \section{Introduction}
 
-The 2008--2009 Global Financial Crisis and subsequent episodes of market stress demonstrated that equity market crashes are not merely idiosyncratic shocks but often the result of systemic contagion propagating through a densely connected financial network. Understanding the structure of these connections---and how it evolves as a crisis approaches---has become a central question in both academic finance and risk management.\\
+The 2008--2009 Global Financial Crisis and subsequent episodes of market stress demonstrated that equity market crashes are not merely idiosyncratic shocks but often the result of systemic contagion propagating through a densely connected financial network. Understanding the structure of these connections and how it evolves as a crisis approaches has become a central question in both academic finance and risk management.\\
 
-This project addresses that question through the lens of graph theory and machine learning. We represent the U.S. large-cap equity market as a dynamic weighted network whose nodes are individual stocks and whose edges encode pairwise return correlations. At each point in time, we characterise the global topology of this network through a set of scalar statistics---density, average degree, clustering, connectedness, and spectral properties---and ask whether these statistics, alone or combined with time-series features of the return distribution, can help predict the onset of a market drawdown.\\
+This project addresses that question through the lens of graph theory and machine learning. We represent the U.S. large-cap equity market as a dynamic weighted network whose nodes are individual stocks and whose edges encode pairwise return correlations. At each point in time, we characterise the global topology of this network through a set of scalar statistics: density, average degree, clustering, connectedness, and spectral properties and ask whether these statistics, alone or combined with time-series features of the return distribution, can help predict the onset of a market drawdown.\\
 
 The empirical exercise is organised into three main components. First, we construct a daily rolling correlation network for the Russell 1000 universe using a robust estimator that combines Ledoit--Wolf shrinkage with exponential time-weighting. The resulting matrices are thresholded to form sparse graphs that emphasise the strongest pairwise dependences while preserving the sign of the correlation.\\
 
@@ -45,7 +54,7 @@ Second, we build two complementary feature sets. Network features capture the gl
 
 Third, we frame crisis prediction as a binary classification problem. The target variable is an indicator that equals one whenever the forward 21-day maximum drawdown exceeds the empirical 20th percentile of the drawdown distribution, and zero otherwise. Because positive (crisis) observations are naturally rare, we adopt precision-recall area under the curve (PR-AUC) as our primary evaluation metric and calibrate classifiers accordingly. Out-of-sample performance is measured through an expanding walk-forward cross-validation scheme that mirrors realistic portfolio management constraints.\\
 
-Beyond the predictive exercise, we construct a rich panel of node-level network metrics---per-stock degree, strength, clustering, eigenvector centrality, PageRank, k-core number, and community membership---updated at daily frequency. This panel can serve directly as an input to cross-sectional strategies that exploit time-varying differences in individual stocks' systemic importance.\\
+Beyond the predictive exercise, we construct a rich panel of node-level network metrics: per-stock degree, strength, clustering, eigenvector centrality, PageRank, k-core number, and community membership updated at daily frequency. This panel can serve directly as an input to cross-sectional strategies that exploit time-varying differences in individual stocks' systemic importance.\\
 
 The remainder of the paper is organized as follows. Section~\ref{sec:data} describes the data sources and the construction of the investment universe. Section~\ref{sec:methodology} details the full methodology, from correlation estimation to walk-forward evaluation. Section~\ref{sec:node_features} discusses the node-level network panel. Section~\ref{sec:results} presents the empirical results. Section~\ref{sec:conclusion} concludes.
 
@@ -57,11 +66,11 @@ The remainder of the paper is organized as follows. Section~\ref{sec:data} descr
 
 The empirical analysis focuses on the Russell 1000 universe, which comprises the 1,000 largest U.S. publicly traded companies by market capitalisation. Daily price and return data are sourced from the Wharton Research Data Services (WRDS) database. The universe is dynamic: constituents are those qualifying at each observation date, so survivorship bias is mitigated by design.\\
 
-We denote by $\mathcal{U}_t$ the set of stocks available at date $t$. The asset return matrix at date $t$ is $\mathbf{R}_t \in \mathbb{R}^{|\mathcal{U}_t|}$, where each entry is the daily log-return of the corresponding stock. We use raw returns as the base series; an idiosyncratic return variant (residuals from a one-factor market model) is available as an alternative specification.
+We denote by $\mathcal{U}_t$ the set of stocks available at date $t$. The asset return matrix at date $t$ is $\mathbf{R}_t \in \mathbb{R}^{|\mathcal{U}_t|}$, where each entry is the daily return of the corresponding stock. We use raw returns as the base series; an idiosyncratic return variant (residuals from a one-factor market model) is available as an alternative specification.
 
 \subsection{Benchmark and risk-free rate}
 
-The market benchmark is the Russell 1000 index return, used as the market factor in beta estimation and as the primary benchmark for evaluating dynamic strategies. The daily risk-free rate is sourced from WRDS and proxies the one-month Treasury bill rate converted to daily frequency.
+The market benchmark is the Russell 1000 CW index return, used as the market factor in beta estimation and as the primary benchmark for evaluating dynamic strategies. The daily risk-free rate is sourced from FRED and proxies the one-month Treasury bill rate converted to daily frequency.
 
 \subsection{Target variable construction}
 \label{sec:target}
@@ -76,7 +85,7 @@ The binary target is then defined as:
 \begin{equation}
     y_t = \mathbf{1}\!\left\{ \text{MDD}_{t}^{H} \leq q_{\alpha}\!\left(\text{MDD}^{H}\right) \right\},
 \end{equation}
-where $q_{\alpha}$ denotes the $\alpha$-th empirical quantile of the drawdown distribution computed over the full sample, with $\alpha = 0.20$ in our baseline specification. Hence $y_t = 1$ marks dates whose subsequent 21-day window realises one of the worst 20\% of drawdown episodes---our operational definition of a market crisis.\\
+where $q_{\alpha}$ denotes the $\alpha$-th empirical quantile of the drawdown distribution computed over the full sample, with $\alpha = 0.20$ in our baseline specification. Hence $y_t = 1$ marks dates whose subsequent 21-day window realises one of the worst 20\% of drawdown episodes, our operational definition of a market crisis.\\
 
 A critical design choice is that $y_t$ is strictly forward-looking: the drawdown is computed over the window $[t, t+H]$ and therefore does not use any return information available at or before $t$. This ensures no look-ahead bias enters the feature-target alignment.
 
@@ -115,7 +124,7 @@ Given the estimated correlation matrix $\hat{\boldsymbol{\rho}}_t \in [-1, 1]^{N
     \item $w_{ij,t} = \hat{\rho}_{ij,t}$ for $(i,j) \in \mathcal{E}_t$ (signed weights are retained).
 \end{itemize}
 
-Using absolute-value thresholding ensures that both strong positive and strong negative co-movements generate edges, while retaining the sign in the weight allows downstream graph metrics to distinguish stocks moving in concert from those moving in opposition. The threshold $\tau = 0.75$ is held fixed across the full sample; sensitivity analyses varying $\tau$ are available as an alternative configuration.\\
+Using absolute-value thresholding ensures that both strong positive and strong negative co-movements generate edges, while retaining the sign in the weight allows downstream graph metrics to distinguish stocks moving in concert from those moving in opposition. The threshold $\tau = 0.75$ is held fixed across the full sample; sensitivity analyses varying $\tau$ are available as an alternative configuration (but not done in this study due to computation reasons).\\
 
 Diagonal entries are set to zero before graph construction. The resulting adjacency matrix $\mathbf{A}_t$ is sparse by design: at $\tau = 0.75$, the majority of stock pairs have their edge removed, retaining only the most strongly co-moving pairs.
 
@@ -149,6 +158,77 @@ $\lambda_1 / \sum_i \lambda_i$ & Variance explained by the first principal compo
 
 Several of these statistics have well-established economic interpretations in the context of systemic risk. The density and average degree measure how interconnected the market is: a denser network implies that shocks can propagate more broadly, consistent with elevated systemic risk \cite{billio2012}. The leading eigenvalue $\lambda_1$ captures the fraction of total variance attributable to the dominant market factor; a rising $\lambda_1$ signals increased co-movement across assets, which historically precedes market stress episodes \cite{laloux1999}. The largest connected component ratio quantifies what fraction of stocks remain linked when isolated nodes are removed; a near-unity ratio indicates that a single contagion pathway can reach virtually the entire market.
 
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.8\textwidth]{Figures/degree_distribution_by_regime_log_binned.png}
+  \caption{Degree distribution by regime}
+  \label{fig:degree_distribution}
+\end{figure}
+
+The degree distribution provides a natural starting point for this analysis, as it captures how connections are distributed across nodes. It is widely regarded as a key fingerprint of network structure. When examining the empirical degree distributions at a given date, particularly in stressed regimes, the plots may appear highly irregular, with significant fluctuations and only a small number of visible points. However, this apparent instability is largely driven by statistical limitations rather than genuine structural noise. In the tail of the distribution, where nodes with very high degree are located, the number of observations is inherently small, leading to high variance in estimates. This issue becomes especially pronounced when using standard histogram representations. Once appropriate techniques such as logarithmic binning and averaging across time are applied, the distributions reveal a much smoother and more interpretable pattern. The resulting shape exhibits a slow decay, consistent with heavy-tailed behavior, which is characteristic of heterogeneous networks where a small number of nodes act as hubs with significantly higher connectivity than the average.
+
+
+A striking observation is the similarity of the degree distributions across normal and stressed regimes. Despite substantial differences in market conditions, the overall shape of the distribution remains remarkably stable. This suggests that the global topology of the network, in terms of how connections are distributed among nodes, does not undergo a fundamental transformation during periods of stress. In other words, the network does not reorganize itself into a completely different structure when markets become turbulent. Instead, the same heterogeneous architecture persists, implying that systemic risk does not necessarily manifest through changes in the marginal distribution of connections, but rather through more subtle mechanisms affecting how these connections are utilized or intensified.
+
+
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{Figures/degree_mixing_scatter_regime_normal.png}
+    \caption{Degree mixing in normal regime}
+    \label{fig:claims_churn}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{Figures/degree_mixing_scatter_regime_tendu.png}
+    \caption{Degree mixing in stressed regime}
+    \label{fig:claims_reasons}
+\end{subfigure}
+
+\vspace{0.3cm}
+
+\caption{Degree mixing conditional to regimes}
+\label{fig:degree_mixing}
+
+\end{figure}
+
+Further insight into the organization of the network is provided by the analysis of degree correlations, often referred to as degree mixing. This approach examines how the degree of a node relates to the average degree of its neighbors. Empirically, the relationship between these quantities is found to be increasing, indicating assortative mixing. High-degree nodes tend to be connected to other high-degree nodes, while low-degree nodes are more likely to connect to similarly less connected nodes. This pattern reveals a form of structural homophily and suggests the presence of a hierarchical organization within the network. Importantly, this behavior is observed consistently across both normal and stressed regimes. The near-identical shape of the curves in the two cases indicates that the fundamental mechanisms governing link formation remain stable over time. The network preserves its assortative structure even under stress, implying that changes in market conditions do not alter the way nodes select their counterparts, but may instead affect the strength or density of existing connections.
+
+
+The rich-club coefficient offers an additional perspective by focusing on the connectivity among highly connected nodes. This measure quantifies the extent to which nodes with degree above a certain threshold are more densely interconnected than expected in a comparable random network. The normalized version of the coefficient allows for a meaningful comparison by accounting for the underlying degree distribution, using a random benchmark network generated via the Molloy–Reed configuration model, which is particularly well-suited in this context due to its computational efficiency. The empirical results reveal that for intermediate degree levels, the normalized rich-club coefficient exceeds one, indicating a significant tendency for these nodes to form a tightly connected core. However, as the degree threshold increases further, the coefficient declines and can fall below one, suggesting that the most extreme hubs are not necessarily interconnected. This pattern points to a non-trivial organization in which a dense core is formed by moderately connected nodes rather than by the most extreme hubs. Such a structure reflects a balance between concentration and dispersion in the network. Once again, this organization remains highly similar across market regimes, reinforcing the idea that the structural backbone of the network is robust to changes in external conditions.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{Figures/rich_club_by_regime.png}
+  \caption{Rich club property}
+  \label{fig:rich_club}
+\end{figure}
+
+Figure \ref{fig:target_over_time} displays the binary target variable alongside the forward maximum drawdown used to construct it. The dashed curve represents the raw forward drawdown, which fluctuates over time with occasional sharp negative spikes corresponding to market stress episodes. The binary target, shown as a sequence of vertical transitions between 0 and 1, is derived from this continuous measure through a thresholding rule. What immediately stands out is the high frequency of switches between the two states. The target does not exhibit long, clearly defined regimes but rather alternates rapidly, even in periods where the drawdown signal appears relatively stable.
+A closer inspection reveals that the most extreme drawdown events, such as the sharp drop around 2020, are correctly captured by the target variable. During these periods, the binary indicator remains consistently activated, reflecting a coherent identification of stress regimes.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{Figures/target_variable_over_time.png}
+  \caption{Target variable over time}
+  \label{fig:target_over_time}
+\end{figure}
+
+
+\newpage Figure \ref{fig:target_over_time_cum} complements this analysis by placing the same binary target in relation to the cumulative return of a benchmark index. The cumulative return curve provides a long-term view of market performance, with clear phases of growth, correction, and recovery. When the binary target is superimposed on this trajectory, it becomes possible to assess whether the identified stress periods align with economically meaningful downturns.
+
+The alignment is partially successful. The most significant drawdowns in cumulative returns, such as the COVID-19 crash, coincide with sustained activation of the target variable. This confirms that the construction of the target captures major systemic events. However, the target also fires frequently during periods of steady upward trends or mild corrections, where the cumulative return does not exhibit any pronounced deterioration.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.7\textwidth]{Figures/target_variable_over_time_with_cum_ret.png}
+  \caption{Target variable over time and cumulative returns}
+  \label{fig:target_over_time_cum}
+\end{figure}
+
 \subsection{Time-series features}
 
 In addition to network topology, we extract a set of time-series features that characterise the dynamics of the market return distribution at multiple horizons. For a lookback of $\tau = 252$ days, three adaptive windows are derived: short ($w_1 \approx \tau/4 = 63$), medium ($w_2 \approx \tau/2 = 126$), and full ($w_3 = 252$).\\
@@ -174,6 +254,7 @@ Model evaluation follows a strict out-of-sample expanding walk-forward protocol,
     \item \textbf{Burn-in}: the first $\tau_{\text{corr}} + \tau_{\text{train}} + \tau_{\text{val}}$ dates are consumed by the correlation lookback, the initial training window, and the initial validation window, and are excluded from out-of-sample evaluation.
     \item \textbf{Training window}: at each outer step $s$, the training set spans dates from the start of the sample up to the current date $t_s$ (expanding window), with $\tau_{\text{train}} = 252$ as the minimum training size.
     \item \textbf{Validation window}: immediately following the training window, a fixed-length validation block of $\tau_{\text{val}} = 42$ trading days is used for hyperparameter selection via grid search.
+    \item \textbf{Buffer window}: a buffer window of 21 days is present after the validation window and before the test date to avoid data leakage due to our 21d forward looking target variable.
     \item \textbf{Test (OOS) date}: after validation, the model is refit on the combined train+validation data and generates one prediction for date $t_s + \tau_{\text{val}} + 1$. The outer step then advances by one day.
 \end{itemize}
 
@@ -183,27 +264,34 @@ Model evaluation follows a strict out-of-sample expanding walk-forward protocol,
 
 This scheme guarantees that every out-of-sample prediction is generated using only information available at that point in time, with no future leakage. Importantly, because the target variable $y_t$ is already forward-defined (it encodes a future event starting at $t$), the feature vector at date $t$ and the label $y_t$ can be aligned directly without any additional shifting.\\
 
-\noindent\textbf{Performance caching.} The rolling correlation matrices and time-series features are precomputed once over the full sample before the walk-forward loop begins. Within the loop, feature matrices for each training window are built incrementally---only the newly added dates are computed and appended to the cached window---avoiding redundant recomputation. This brings the total runtime from $O(T^2)$ to $O(T)$ in the number of feature evaluations.
+\noindent\textbf{Performance caching.} The rolling correlation matrices and time-series features are precomputed once over the full sample before the walk-forward loop begins. Within the loop, feature matrices for each training window are built incrementally: only the newly added dates are computed and appended to the cached window, avoiding redundant recomputation. This brings the total runtime from $O(T^2)$ to $O(T)$ in the number of feature evaluations.
 
 \subsection{Model selection and classification}
 \label{sec:models}
 
-At each outer step, hyperparameter selection proceeds by grid search over the validation window, maximising PR-AUC as the scoring criterion. PR-AUC (area under the precision-recall curve) is preferred over ROC-AUC for this imbalanced binary classification problem: with positive (crisis) events comprising approximately 20\% of observations, ROC-AUC is inflated by the large number of true negatives and may obscure the model's ability to correctly identify crises \cite{davis2006}.\\
+At each outer step, hyperparameter selection proceeds by grid search over the validation window, maximising PR-AUC as the scoring criterion. PR-AUC (area under the precision-recall curve) is preferred over ROC-AUC for this imbalanced binary classification problem: with positive (y=1) (crisis) events comprising approximately 20\% of observations, ROC-AUC is inflated by the large number of true negatives and may obscure the model's ability to correctly identify crises \cite{davis2006}.\\
 
 We evaluate the following classifiers:
 
 \begin{table}[H]
 \centering
+\small
 \caption{Classification models used in the walk-forward evaluation.}
 \label{tab:models}
-\begin{tabular}{lll}
+\begin{tabular}{ll}
 \toprule
-\textbf{Model} & \textbf{Key hyperparameters} & \textbf{Notes} \\
+\textbf{Model} & \textbf{Configuration} \\
 \midrule
-L1 Logistic Regression & $C \in \{0.01\}$ & SAGA solver; balanced class weights; \\
- & & $\ell_1$ penalty enforces feature sparsity \\
-Random Forest & $n_{\text{est}} = 200$; $d_{\max} = 5$ & Balanced class weights; \\
- & & no feature scaling required \\
+
+L1 Logistic Regression
+& $C \in \{0.01, 0.1, 1.0\}$; SAGA; $\ell_1$; balanced; scaled \\
+
+Random Forest
+& $n_{\text{est}}=200$; $d_{\max}\in\{5,10\}$; balanced \\
+
+Gradient Boosting
+& $n_{\text{est}}=100$; $d_{\max}\in\{5,10\}$; $\eta\in\{0.05,0.1\}$ \\
+
 \bottomrule
 \end{tabular}
 \end{table}
@@ -263,21 +351,176 @@ The node-level panel can serve as the input to a variety of cross-sectional inve
     \item \textbf{Strength as a crowding indicator.} Stocks with unusually high absolute strength are heavily interconnected with the rest of the market; this crowding may predict reversals when liquidity conditions deteriorate.
 \end{itemize}
 
-Empirical testing of these hypotheses through portfolio sorts is left for future work.
+Empirical testing of these hypotheses through cross-sectional portfolio sorts is presented in Section~\ref{sec:cs_backtest}.
 
 
 \section{Results}
 \label{sec:results}
 
-\textit{Results will be reported once the walk-forward cross-validation has been completed. Planned tables and figures include: OOS PR-AUC by feature mode and model, validation score coverage, feature-target correlation diagnostics, degree distribution animations, and the node-level centrality panel summary statistics.}
+\subsection{Feature--target correlations}
+\label{sec:feature_corr}
+
+Table~\ref{tab:feat_corr} reports the Pearson correlation between each individual feature and the binary crisis target computed over the full sample. All values are modest in magnitude, consistent with the inherent difficulty of predicting rare market events from a single feature in isolation.
+
+\textbf{Anti-predictive features.} The most negatively correlated features measure the share of assets currently in drawdown at 63-, 126-, and 252-day horizons, along with short-term market volatility and short-term absolute returns. The negative sign reflects a \emph{mean-reversion effect}: when many assets are simultaneously in drawdown and recent volatility is elevated, the market has already partly priced in stress, making a further extreme 21-day episode somewhat less probable relative to calm periods. The absolute return of the last observation carries nearly the same negative correlation across all horizons ($r = -0.12$), suggesting a ``recent spike absorbs forward crisis'' pattern.
+
+\textbf{Predictive features.} The most positively correlated features are concentrated in market drawdown and mean return statistics at the 63-day horizon. A positive relationship between the ongoing 63-day drawdown and the forward crisis indicator captures a \emph{momentum-in-drawdown} effect: markets trending lower for three months are more likely to experience a further severe episode over the next 21 days. Short-term VaR and CVaR at the 2-day horizon also appear, flagging elevated tail risk. Notably, all top-10 and bottom-10 features belong to the time-series (\texttt{ts}) group; no network feature reaches either tail of the correlation ranking, foreshadowing the ablation results in Section~\ref{sec:oos_metrics}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Feature--target Pearson correlations: 10 most anti-predictive (left) and 10 most predictive (right) features. Feature names follow the convention \texttt{ts\_\{category\}\_\{name\}\_\{window\}}, where the window is in trading days.}
+\label{tab:feat_corr}
+\begin{tabular}{p{5.2cm}rp{5.2cm}r}
+\toprule
+\textbf{Feature (bottom 10)} & \textbf{$r$} & \textbf{Feature (top 10)} & \textbf{$r$} \\
+\midrule
+Share in drawdown (63d)         & $-0.17$ & Market drawdown (63d)         & $+0.17$ \\
+Share in drawdown (126d)        & $-0.15$ & Mean daily return (63d)        & $+0.14$ \\
+Volatility ratio (2d/252d)      & $-0.14$ & Market compound return (63d)   & $+0.14$ \\
+Market volatility (2d)          & $-0.13$ & Market drawdown (126d)         & $+0.14$ \\
+Share in drawdown (252d)        & $-0.13$ & Hit ratio (63d)                & $+0.12$ \\
+Avg.\ asset vol.\ ratio (2/252) & $-0.12$ & Market drawdown (252d)         & $+0.12$ \\
+Abs.\ return, last obs.\ (63d)  & $-0.12$ & Avg.\ asset return (63d)       & $+0.12$ \\
+Abs.\ return, last obs.\ (2d)   & $-0.12$ & CVaR$_{5\%}$ (2d)             & $+0.12$ \\
+Abs.\ return, last obs.\ (126d) & $-0.12$ & VaR$_{5\%}$ (2d)              & $+0.11$ \\
+Abs.\ return, last obs.\ (252d) & $-0.12$ & Mean daily return (126d)       & $+0.10$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Out-of-sample predictive performance}
+\label{sec:oos_metrics}
+
+Table~\ref{tab:oos_metrics} summarises the out-of-sample classification metrics for each (feature mode, model) combination, averaged across the full OOS period.
+
+\textbf{Feature modes.} The time-series mode (\texttt{ts}) consistently outperforms the network-only mode (\texttt{network}) across all classifiers and metrics. The gap in PR-AUC is approximately 0.05 points (0.27--0.28 for \texttt{ts} vs.\ 0.22--0.23 for \texttt{network}), indicating that the global topology of the correlation graph---density, clustering, spectral properties---carries little incremental information for crisis prediction beyond return-distribution dynamics. The combined mode (\texttt{all}) fails to improve upon \texttt{ts} for logistic regression and gradient boosting; only the random forest benefits marginally (PR-AUC 0.29 vs.\ 0.28 in \texttt{ts}), suggesting that network features introduce noise for linear models.
+
+\textbf{Models.} Logistic regression achieves the highest recall (0.49--0.52) but at the cost of lower precision (0.29) and poorer calibration (Brier $\approx 0.29$--0.30). It signals crises more aggressively, spending more time in the risk-free asset during timing backtests. Random forest achieves the best precision and lowest Brier score (0.22), offering more conservative and better-calibrated predictions. Gradient boosting occupies an intermediate position.
+
+\textbf{Overall level.} All PR-AUCs fall in the range 0.22--0.29. A naive classifier predicting the unconditional base rate of 20\% would achieve PR-AUC $\approx 0.20$. The trained models therefore deliver modest but positive lift above the naive baseline. The limited absolute level of performance reflects the inherent unpredictability of crisis onset from publicly observable features.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Out-of-sample classification metrics by feature mode and model. GBT~=~Gradient Boosting, LR~=~Logistic Regression, RF~=~Random Forest. Brier score: lower is better; a naive predictor at the 20\% base rate achieves 0.16.}
+\label{tab:oos_metrics}
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Mode} & \textbf{Model} & \textbf{ROC-AUC} & \textbf{PR-AUC} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{Brier} \\
+\midrule
+\texttt{ts}      & GBT & 0.52 & 0.28 & 0.30 & 0.16 & 0.21 & 0.25 \\
+\texttt{ts}      & LR  & 0.53 & 0.27 & 0.29 & 0.49 & 0.36 & 0.29 \\
+\texttt{ts}      & RF  & 0.52 & \textbf{0.28} & 0.31 & 0.19 & 0.24 & \textbf{0.22} \\
+\addlinespace
+\texttt{network} & GBT & 0.43 & 0.23 & 0.20 & 0.13 & 0.15 & 0.29 \\
+\texttt{network} & LR  & 0.43 & 0.22 & 0.21 & 0.29 & 0.24 & 0.27 \\
+\texttt{network} & RF  & 0.45 & 0.23 & 0.18 & 0.09 & 0.12 & 0.24 \\
+\addlinespace
+\texttt{all}     & GBT & 0.50 & 0.27 & 0.27 & 0.14 & 0.19 & 0.26 \\
+\texttt{all}     & LR  & 0.53 & 0.26 & 0.29 & 0.52 & 0.37 & 0.30 \\
+\texttt{all}     & RF  & 0.52 & \textbf{0.29} & 0.32 & 0.19 & 0.24 & \textbf{0.22} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Oracle timing backtest}
+\label{sec:oracle_backtest}
+
+Figure~\ref{fig:oracle_timing} shows the cumulative performance of the oracle market-timing strategy. The strategy holds the Russell~1000 when the oracle target $y_t = 0$ and switches entirely to the risk-free asset for a 21-trading-day window whenever $y_t = 1$ fires, using perfect foresight. A 1-day implementation lag and 10 bps transaction costs per leg are applied. This provides a \emph{theoretical upper bound} on any timing strategy that relies on the same target variable.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{../figures/backtest_oracle_timing/cumulative_returns.png}
+  \caption{Oracle market-timing strategy: cumulative net returns. The oracle holds the Russell~1000 when the crisis target is zero and exits to the risk-free asset for a 21-day window whenever the target fires. Shaded regions indicate periods in the risk-free asset. Transaction costs: 10 bps per leg.}
+  \label{fig:oracle_timing}
+\end{figure}
+
+The oracle dramatically outperforms the buy-and-hold benchmark by sidestepping every drawdown episode with perfect foresight. Its strong performance establishes the maximum value attainable by a crisis-prediction-based timing rule applied to this target. The comparison between the oracle curve and the prediction-based timing strategies (Section~\ref{sec:prediction_timing}) quantifies how much of this theoretical ceiling the estimated classifiers are able to capture. Given that even perfect foresight must exit the market approximately 20\% of the time and incur turnover costs at each switch, the oracle's structural advantage is bounded---yet it comfortably outperforms the benchmark across the full sample, confirming that the target variable is economically meaningful as a criterion for market-timing decisions.
+
+
+\subsection{Prediction-based timing backtest}
+\label{sec:prediction_timing}
+
+Figure~\ref{fig:prediction_timing_combined} shows the combined cumulative performance of all nine prediction-based timing strategies---one per (model, feature-mode) pair---evaluated strictly out-of-sample.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.90\textwidth]{../figures/backtest_prediction_timing/combined_cumulative_prediction_timing.png}
+  \caption{Prediction-based timing strategies: combined cumulative net returns for all nine (model, feature-mode) combinations. The timing signal converts the walk-forward binary prediction $\hat{y}_t$ into a 21-day hold-risk-free indicator, identical in structure to the oracle. Benchmark is the Russell~1000 buy-and-hold. Transaction costs: 10 bps per leg.}
+  \label{fig:prediction_timing_combined}
+\end{figure}
+
+The combined chart reveals several patterns. First, most strategies underperform the buy-and-hold benchmark over the full OOS period. Classifiers that miss a substantial fraction of true crises while generating false positives force premature exits from rising markets, eroding participation in sustained rallies. Second, strategies based on network-only features perform worst, consistent with their low PR-AUC in Table~\ref{tab:oos_metrics}. Third, logistic regression strategies, which exhibit the highest recall, spend the most time in the risk-free asset; their conservative posture limits drawdowns but also curtails upside participation.
+
+The gap between the oracle (Section~\ref{sec:oracle_backtest}) and the prediction-based strategies reflects the forecasting accuracy shortfall documented in Table~\ref{tab:oos_metrics}. Translating PR-AUC gains of a few percentage points into meaningful economic performance is inherently difficult: one missed crisis can erase the benefit of several correctly avoided episodes. These results reinforce a broader lesson: even statistically valid classifiers may fail to generate economically significant timing alpha after transaction costs.
+
+
+\subsection{Cross-sectional network feature backtest}
+\label{sec:cs_backtest}
+
+Figure~\ref{fig:cs_combined} and Table~\ref{tab:cs_summary} present the results of the cross-sectional portfolio strategies built from node-level network features at threshold $\tau = 0.75$. Each portfolio is long-only, equal-weighted within the selected percentile (top or bottom 20\%), rebalanced daily with a 1-day implementation lag to avoid look-ahead bias, and subject to 10 bps transaction costs per rebalancing.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.90\textwidth]{../figures/backtest_cross_sectional/combined/threshold_0_75/combined_cumulative.png}
+  \caption{Cross-sectional network feature strategies: combined cumulative net returns at threshold $\tau = 0.75$. Solid lines = long-top portfolios (buy highest-feature stocks); dashed lines = long-bottom portfolios (buy lowest-feature stocks). Each colour corresponds to one network feature. The black line is the Russell~1000 buy-and-hold benchmark.}
+  \label{fig:cs_combined}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Cross-sectional network feature strategy performance at threshold $\tau = 0.75$, sorted by Sharpe ratio (SR) in descending order. All portfolios are long-only, equal-weighted, daily rebalanced, with a 1-day implementation lag and 10 bps transaction costs. $\star$ = benchmark.}
+\label{tab:cs_summary}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Strategy} & \textbf{Tot.\ Ret.} & \textbf{Ann.\ Ret.} & \textbf{Volatility} & \textbf{SR} & \textbf{Max DD} \\
+\midrule
+Eigenvec.\ centrality (bottom)      & 106.67\% &  16.37\% &  14.37\% & 1.14 & $-15.00\%$ \\
+Clustering (bottom)                 &  90.92\% &  14.47\% &  14.48\% & 1.00 & $-16.11\%$ \\
+Eigenvec.\ centrality (top)         & 216.81\% &  27.22\% &  28.32\% & 0.96 & $-26.60\%$ \\
+Clustering (top)                    & 194.57\% &  25.33\% &  26.66\% & 0.95 & $-24.87\%$ \\
+Buy \& Hold (Russell 1000)~$\star$  & 298.05\% &  16.17\% &  18.08\% & 0.89 & $-34.58\%$ \\
+Degree (bottom)                     &  85.83\% &   6.96\% &  11.67\% & 0.60 & $-22.13\%$ \\
+Strength (bottom)                   &  85.83\% &   6.96\% &  11.67\% & 0.60 & $-22.13\%$ \\
+Abs.\ strength (bottom)             &  85.83\% &   6.96\% &  11.67\% & 0.60 & $-22.13\%$ \\
+PageRank (bottom)                   &  85.83\% &   6.96\% &  11.67\% & 0.60 & $-22.13\%$ \\
+Core number (bottom)                &  85.83\% &   6.96\% &  11.67\% & 0.60 & $-22.13\%$ \\
+Strength (top)                      & 212.90\% &  13.18\% &  25.30\% & 0.52 & $-35.15\%$ \\
+Abs.\ strength (top)                & 212.90\% &  13.18\% &  25.30\% & 0.52 & $-35.15\%$ \\
+PageRank (top)                      & 199.10\% &  12.63\% &  24.70\% & 0.51 & $-35.75\%$ \\
+Core number (top)                   & 195.23\% &  12.47\% &  25.10\% & 0.50 & $-35.11\%$ \\
+Degree (top)                        & 195.32\% &  12.47\% &  25.18\% & 0.50 & $-35.15\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The cross-sectional results yield the most actionable findings of the paper.
+
+\textbf{Periphery premium.} The two best-performing strategies on a risk-adjusted basis are the long-bottom portfolios on eigenvector centrality (SR $= 1.14$) and local clustering (SR $= 1.00$), both above the benchmark Sharpe of 0.89. These portfolios systematically hold the stocks with the \emph{lowest} centrality and sparsest local neighbourhood in the correlation network. Their annualised volatility (14.4\%) is well below the benchmark's 18.1\%, and their maximum drawdowns ($-15.0\%$ and $-16.1\%$) are roughly half the benchmark's $-34.6\%$. This is consistent with the periphery premium documented by \cite{pozzi2013}: loosely connected assets carry less systemic co-crash risk and tend to trade at a discount to their risk-adjusted return potential, offering superior Sharpe ratios.
+
+\textbf{High-centrality strategies: high return, high risk.} The long-top portfolios for eigenvector centrality and clustering achieve the highest total returns (216.8\% and 194.6\%) and remain above the benchmark on a risk-adjusted basis (SR $\approx 0.96$--0.95), but with commensurately higher volatility (28.3\% and 26.7\%) and deeper drawdowns ($-26.6\%$ and $-24.9\%$). These results reflect the core property of central stocks: they amplify both upside co-movement and co-crash risk during stress episodes.
+
+\textbf{Degenerate bottom portfolios for degree-type metrics.} The five long-bottom portfolios based on degree, strength, absolute strength, PageRank, and core number are \emph{identically} performing (SR $= 0.60$, Ann.\ Ret.\ $= 6.96\%$, Max DD $= -22.13\%$). At the stringent threshold $\tau = 0.75$, the stocks with the lowest values of each of these five metrics form the same set of near-isolated nodes. This degeneracy confirms that at the periphery of a very sparse graph, degree-type and centrality-type metrics become indistinguishable: a node with zero edges has degree $= 0$, strength $= 0$, and core number $= 0$.
+
+\textbf{Long-top strategies for degree-type metrics.} The long-top portfolios for degree, strength, absolute strength, PageRank, and core number underperform the benchmark on a risk-adjusted basis (SR $\approx 0.50$--0.52) despite high total returns (195\%--213\%). Their elevated volatility ($\approx 25\%$) and deep drawdowns ($\approx -35\%$) reflect concentration in the most correlated, most central assets, which tend to co-crash during stress episodes---exactly the behaviour the periphery-premium hypothesis predicts.
 
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-\textit{To be completed once results are available.} This study develops a modular, reproducible pipeline for translating the structure of equity correlation networks into predictive signals for market crisis detection. By combining robust correlation estimation (Ledoit--Wolf shrinkage with exponential time-weighting), threshold graph construction, and a strict expanding walk-forward cross-validation framework, we aim to establish whether network topology provides incremental predictive power beyond what is captured by time-series features of the return distribution alone.\\
+This paper develops a modular, reproducible pipeline for translating equity correlation network topology into two categories of financial signal: market-timing predictions and cross-sectional stock-selection strategies.
 
-Beyond the predictive exercise, the node-level centrality panel generated by this pipeline represents a daily cross-sectional dataset that can be directly exploited for systematic investment strategies. Future research could extend this framework to alternative graph construction methods (minimum spanning trees, graphical LASSO networks), additional model families, and multi-period crisis forecasting horizons.
+\textbf{Network features and crisis prediction.} The walk-forward cross-validation exercise reveals that global network-topology features---density, degree distribution statistics, weighted clustering, and spectral properties of the threshold correlation graph---provide no meaningful incremental predictive power for the binary crisis indicator beyond what is captured by time-series return-distribution features alone. The network-only feature mode achieves PR-AUC of 0.22--0.23, barely above the naive 0.20 baseline for a 20\% positive rate, and consistently lags the time-series mode (0.27--0.28) across all three classifiers. Combining both feature sets fails to improve upon the pure time-series mode for linear and boosting models. Whether richer or more dynamic network representations---temporal graph neural networks, minimum spanning trees, or directed causal graphs---could recover an incremental signal remains an open question.
+
+\textbf{Prediction-based market timing.} Translating walk-forward binary predictions into market-exit signals does not generate consistent risk-adjusted outperformance relative to the buy-and-hold benchmark. The modest PR-AUC values imply that classifiers miss many true crises while generating enough false positives to force premature exits from rising markets. The oracle timing backtest establishes that a perfect predictor of the same 21-day target would dramatically outperform the benchmark, confirming the economic value of accurate crisis prediction in principle---but none of the estimated classifiers come close to this ceiling.
+
+\textbf{Cross-sectional network strategies and the periphery premium.} The most actionable result is the strong performance of long-periphery portfolios. Going long on the stocks with the lowest eigenvector centrality or clustering coefficient produces Sharpe ratios of 1.14 and 1.00 respectively, meaningfully above the benchmark's 0.89, with maximum drawdowns roughly half the benchmark's ($-15\%$ vs.\ $-35\%$). This finding confirms and extends the periphery-premium hypothesis of \cite{pozzi2013} to a large-cap U.S. sample spanning multiple market cycles. The practical implication is direct: the node-level network feature panel, updated at daily frequency, can serve as an input to systematic risk-managed strategies that tilt away from systemically important assets.
+
+\textbf{Limitations and future work.} The analysis uses a single correlation threshold ($\tau = 0.75$). Future work could vary $\tau$ to study how the periphery premium depends on graph sparsity, and explore alternative graph construction methods (minimum spanning trees, graphical LASSO, information-theoretic filtering). Multi-step forecasting and conditional approaches may improve timing performance. Finally, extending the framework to international markets or alternative asset classes would test the universality of the periphery premium.
 
 
 \begin{thebibliography}{99}
@@ -359,5 +602,103 @@ Node-level metrics are computed for each date $t$ by applying Algorithm~\ref{alg
 \State \Return panel row $(t, i, d_i, s_i, |s_i|, c_i, x_i^{\text{eig}}, x_i^{\text{PR}}, k_i, \text{comm}(i))$ for all $i$
 \end{algorithmic}
 \end{algorithm}
+
+\section{Configuration used to run the code}
+\begin{lstlisting}
+{
+  "AWS": {"S3": {
+    "BUCKET_NAME": "stock-market-network-analysis",
+    "AWS_DEFAULT_REGION": "eu-north-1",
+    "OUTPUT_FORMAT": "json",
+    "FILENAMES_TO_LOAD": [
+      "data/wrds_funda_gross_query.parquet",
+      "data/wrds_gross_query.parquet",
+      "data/russell_returns.parquet",
+      "data/risk_free_returns.parquet"
+    ],
+    "DATES_FILENAME": "data/wrds_gross_query.parquet",
+    "MKT_RETURNS_FILENAME": "data/russell_returns.parquet",
+    "RF_RETURNS_FILENAME": "data/risk_free_returns.parquet"
+  }},
+  "DATA": {
+    "START_DATE_ASSETS": "2013-01-01",
+    "END_DATE_ASSETS": null,
+    "DATA_FREQ": "d",
+    "TARGET_VARIABLE": "dummy_forward_max_drawdown",
+    "TARGET_VARIABLE_ROLLING_WINDOW": 21,
+    "QUANTILE_FOR_DUMMY": 0.20,
+    "RETURNS_TYPE": "raw",
+    "MKT_BENCHMARK_COLUMN": "Russell 1000",
+    "LIMIT_FFILL_BETAS": 5,
+    "LIMIT_FFILL_RF": 10
+  },
+  "FORECASTING": {
+    "FORECASTING_HORIZON": 0,
+    "LOOKBACK_CORR": 252,
+    "INNER_TRAIN_SIZE": 252,
+    "INNER_VAL_SIZE": 42,
+    "INNER_STEP_SIZE": 1,
+    "SCORING_METRIC": "pr_auc",
+    "LOAD_OR_COMPUTE_CV": "compute",
+    "SAVE_CV": true,
+    "LOAD_OR_COMPUTE_CORR": "compute",
+    "SAVE_CORR": true,
+    "LOAD_OR_COMPUTE_TS": "compute",
+    "SAVE_TS": true,
+    "LOAD_OR_COMPUTE_GRAPH_FEATURES": "compute",
+    "SAVE_GRAPH_FEATURES": true,
+    "LOAD_OR_COMPUTE_NODE_FEATURES": "compute",
+    "SAVE_NODE_FEATURES": true,
+    "HALFLIFE_CORR": 63,
+    "EXPANDING_OR_ROLLING": "expanding",
+    "FEATURE_MODES": ["ts", "network", "all"],
+    "THRESHOLD_GRID": [0.75],
+    "MODEL_GRID": [
+      {
+        "model": "LogisticRegression",
+        "scale": true,
+        "model_kwargs": {
+          "solver": "saga",
+          "l1_ratio": 1,
+          "class_weight": "balanced",
+          "max_iter": 2000
+        },
+        "param_grid": [{"C": 0.01}, {"C": 0.1}, {"C": 1.0}]
+      },
+      {
+        "model": "RandomForestClassifier",
+        "scale": false,
+        "model_kwargs": {
+          "class_weight": "balanced",
+          "random_state": 42
+        },
+        "param_grid": [
+          {"n_estimators": 200, "max_depth": 5},
+          {"n_estimators": 200, "max_depth": 10}
+        ]
+      },
+      {
+        "model": "GradientBoostingClassifier",
+        "scale": false,
+        "model_kwargs": {"random_state": 42},
+        "param_grid": [
+          {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.05},
+          {"n_estimators": 100, "max_depth": 10, "learning_rate": 0.1}
+        ]
+      }
+    ]
+  },
+  "BACKTEST": {
+    "TRANSACTION_COSTS_BPS": 10,
+    "PERCENTILES_PORTFOLIOS": [10, 90],
+    "PERCENTILES_WINSORIZATION": [1, 99],
+    "ROLLING_WINDOW_METRICS": 252,
+    "NODE_FEATURES": [
+      "degree", "strength", "abs_strength", "clustering",
+      "eigenvector_centrality", "pagerank", "core_number"
+    ]
+  }
+}
+\end{lstlisting}
 
 \end{document}

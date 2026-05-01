@@ -13,6 +13,7 @@ from stock_mkt_network_analysis.utils.ts_cache import compute_ts_cache_key
 from stock_mkt_network_analysis.utils.graph_features_cache import compute_graph_features_cache_key
 from stock_mkt_network_analysis.utils.node_features_cache import compute_node_features_cache_key
 from stock_mkt_network_analysis.experiments.timing_backtest import run_oracle_timing_backtest
+from stock_mkt_network_analysis.experiments.prediction_timing_backtest import run_prediction_timing_backtest
 from stock_mkt_network_analysis.experiments.cross_sectional_backtest import run_network_cross_sectional_backtest
 
 
@@ -78,57 +79,50 @@ def main():
         pbar.update(1)
 
         # ── Step 4 — Analytics ────────────────────────────────
-        pbar.set_description("Analytics")
-        an.get_analytics(corr_cache=feature_pipeline._corr_cache)
+        # pbar.set_description("Analytics")
+        # an.get_analytics(corr_cache=feature_pipeline._corr_cache)
+        # pbar.update(1)
+
+        ######################################################
+        ### BACKTEST #########################################
+        ######################################################
+
+        # ── Step 5 — Oracle timing backtest ───────────────────
+        # Perfect-foresight upper bound: invest in market when
+        # regime=0, switch to risk-free for the 21-day crisis
+        # window whenever the oracle target fires.
+        pbar.set_description("Backtest — oracle timing")
+        oracle_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_oracle_timing"
+        run_oracle_timing_backtest(config, data_manager, oracle_output_dir)
         pbar.update(1)
 
-        # ######################################################
-        # ### BACKTEST #########################################
-        # ######################################################
-        #
-        # # ── Step 5 — Oracle timing backtest ───────────────────
-        # # Perfect-foresight upper bound: invest in market when
-        # # regime=0, switch to risk-free for the 21-day crisis
-        # # window whenever the oracle target fires.
-        # pbar.set_description("Backtest — oracle timing")
-        # oracle_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_oracle_timing"
-        # run_oracle_timing_backtest(config, data_manager, oracle_output_dir)
-        # pbar.update(1)
-        #
-        # # ── Step 6 — Prediction-based timing backtest ─────────
-        # # Use the walk-forward CV predictions (from Step 3) as a
-        # # market-timing signal: predicted regime=1 → risk-free,
-        # # regime=0 → market.  Same backtester structure as the
-        # # oracle, but driven by model output instead of the oracle.
-        # #
-        # # TODO: implement run_prediction_timing_backtest()
-        # #   Inputs:
-        # #     config         — Config
-        # #     data_manager   — DataManager (already loaded)
-        # #     predictions    — cv_result.predictions  (date × model columns,
-        # #                      values = predicted probabilities or binary labels)
-        # #     output_dir     — Path
-        # pbar.set_description("Backtest — prediction timing")
-        # # prediction_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_prediction_timing"
-        # # run_prediction_timing_backtest(config, data_manager, predictions, prediction_output_dir)
-        # pbar.update(1)
-        #
-        # # ── Step 7 — Cross-sectional network feature backtest ──
-        # # Use asset-level (node) network features as cross-sectional
-        # # signals for a long-only stock-selection strategy.
-        # # For each (feature, threshold) pair, runs long-top and long-bottom
-        # # equal-weight portfolios with a 1-day implementation lag.
-        # # Saves per-feature plots in output_dir/[feature_name]/threshold_[t]/
-        # # and a combined cumulative chart in output_dir/combined/threshold_[t]/
-        # pbar.set_description("Backtest — cross-sectional network")
-        # cs_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_cross_sectional"
-        # run_network_cross_sectional_backtest(
-        #     config, data_manager,
-        #     feature_pipeline._node_feature_cache,
-        #     config.threshold_grid,
-        #     cs_output_dir,
-        # )
-        # pbar.update(1)
+        # ── Step 6 — Prediction-based timing backtest ─────────
+        # For each (model, feature_mode) pair from the walk-forward CV,
+        # converts y_pred_binary into a market-timing signal identical in
+        # structure to the oracle: predicted regime=1 → hold risk-free for
+        # TARGET_VARIABLE_ROLLING_WINDOW days, regime=0 → hold market.
+        # Saves per-model plots + a combined cumulative chart.
+        pbar.set_description("Backtest — prediction timing")
+        prediction_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_prediction_timing"
+        run_prediction_timing_backtest(config, data_manager, predictions, prediction_output_dir)
+        pbar.update(1)
+
+        # ── Step 7 — Cross-sectional network feature backtest ──
+        # Use asset-level (node) network features as cross-sectional
+        # signals for a long-only stock-selection strategy.
+        # For each (feature, threshold) pair, runs long-top and long-bottom
+        # equal-weight portfolios with a 1-day implementation lag.
+        # Saves per-feature plots in output_dir/[feature_name]/threshold_[t]/
+        # and a combined cumulative chart in output_dir/combined/threshold_[t]/
+        pbar.set_description("Backtest — cross-sectional network")
+        cs_output_dir = config.ROOT_DIR / "outputs" / "figures" / "backtest_cross_sectional"
+        run_network_cross_sectional_backtest(
+            config, data_manager,
+            feature_pipeline._node_feature_cache,
+            config.threshold_grid,
+            cs_output_dir,
+        )
+        pbar.update(1)
 
 
 if __name__ == "__main__":
