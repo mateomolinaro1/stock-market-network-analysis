@@ -34,3 +34,4 @@ outputs/figures/*
 !outputs/figures/.gitkeep
 
 science-of-social-and-economic-networks.code-workspace
+*.code-workspace

@@ -2,10 +2,12 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import json
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Tuple, Optional
 
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,8 @@ class Config:
         self.rf_returns_filename: str|None = None
 
         # Data
+        self.start_date_assets: str|None = None
+        self.end_date_assets: str|None = None
         self.data_freq: str|None = None
         self.target_variable: str|None = None
         self.target_variable_rolling_window: int|None = None
@@ -56,6 +60,27 @@ class Config:
         self.scoring_metric: str = "roc_auc"
         self.load_or_compute_cv: str = "compute"
         self.save_cv: bool = False
+        self.load_or_compute_corr: str = "compute"
+        self.save_corr: bool = True
+        self.load_or_compute_ts: str = "compute"
+        self.save_ts: bool = True
+        self.load_or_compute_graph_features: str = "compute"
+        self.save_graph_features: bool = True
+        self.load_or_compute_node_features: str = "compute"
+        self.save_node_features: bool = True
+        self.halflife_corr: Optional[int] = None
+        self.feature_modes: List[str] = ["all"]
+        self.expanding_or_rolling: str = "rolling"
+
+        # Backtest (cross-sectional)
+        self.cs_backtest_transaction_costs_bps: int = 10
+        self.cs_backtest_percentiles_portfolios: List[int] = [10, 90]
+        self.cs_backtest_percentiles_winsorization: List[int] = [1, 99]
+        self.cs_backtest_rolling_window_metrics: int = 252
+        self.cs_backtest_node_features: List[str] = [
+            "degree", "strength", "abs_strength", "clustering",
+            "eigenvector_centrality", "pagerank", "core_number",
+        ]
 
         # Load JSON config to attributes of Config class
         self._load_run_pipeline_config()
@@ -72,7 +97,11 @@ class Config:
         for entry in raw:
             cls = Config._MODEL_REGISTRY[entry["model"]]
             estimator = cls(**entry.get("model_kwargs", {}))
-            result.append((estimator, entry["param_grid"]))
+            param_grid = entry["param_grid"]
+            if entry.get("scale", False):
+                estimator = Pipeline([("scaler", StandardScaler()), ("clf", estimator)])
+                param_grid = [{f"clf__{k}": v for k, v in p.items()} for p in param_grid]
+            result.append((estimator, param_grid))
         return result
 
     def _load_run_pipeline_config(self)->None:
@@ -100,6 +129,10 @@ class Config:
                     self.rf_returns_filename = config.get("AWS").get("S3").get("RF_RETURNS_FILENAME")
 
             # Data
+            if config.get("DATA").get("START_DATE_ASSETS") is not None:
+                self.start_date_assets = config.get("DATA").get("START_DATE_ASSETS")
+            if config.get("DATA").get("END_DATE_ASSETS") is not None:
+                self.end_date_assets = config.get("DATA").get("END_DATE_ASSETS")
             if config.get("DATA").get("DATA_FREQ") is not None:
                 self.data_freq = config.get("DATA").get("DATA_FREQ")
             if config.get("DATA").get("TARGET_VARIABLE") is not None:
@@ -141,3 +174,37 @@ class Config:
                 self.load_or_compute_cv = forecasting.get("LOAD_OR_COMPUTE_CV")
             if forecasting.get("SAVE_CV") is not None:
                 self.save_cv = forecasting.get("SAVE_CV")
+            if forecasting.get("LOAD_OR_COMPUTE_CORR") is not None:
+                self.load_or_compute_corr = forecasting.get("LOAD_OR_COMPUTE_CORR")
+            if forecasting.get("SAVE_CORR") is not None:
+                self.save_corr = forecasting.get("SAVE_CORR")
+            if forecasting.get("LOAD_OR_COMPUTE_TS") is not None:
+                self.load_or_compute_ts = forecasting.get("LOAD_OR_COMPUTE_TS")
+            if forecasting.get("SAVE_TS") is not None:
+                self.save_ts = forecasting.get("SAVE_TS")
+            if forecasting.get("LOAD_OR_COMPUTE_GRAPH_FEATURES") is not None:
+                self.load_or_compute_graph_features = forecasting.get("LOAD_OR_COMPUTE_GRAPH_FEATURES")
+            if forecasting.get("SAVE_GRAPH_FEATURES") is not None:
+                self.save_graph_features = forecasting.get("SAVE_GRAPH_FEATURES")
+            if forecasting.get("LOAD_OR_COMPUTE_NODE_FEATURES") is not None:
+                self.load_or_compute_node_features = forecasting.get("LOAD_OR_COMPUTE_NODE_FEATURES")
+            if forecasting.get("SAVE_NODE_FEATURES") is not None:
+                self.save_node_features = forecasting.get("SAVE_NODE_FEATURES")
+            if forecasting.get("HALFLIFE_CORR") is not None:
+                self.halflife_corr = forecasting.get("HALFLIFE_CORR")
+            if forecasting.get("FEATURE_MODES") is not None:
+                self.feature_modes = forecasting.get("FEATURE_MODES")
+            if forecasting.get("EXPANDING_OR_ROLLING") is not None:
+                self.expanding_or_rolling = forecasting.get("EXPANDING_OR_ROLLING")
+
+            backtest = config.get("BACKTEST", {})
+            if backtest.get("TRANSACTION_COSTS_BPS") is not None:
+                self.cs_backtest_transaction_costs_bps = backtest["TRANSACTION_COSTS_BPS"]
+            if backtest.get("PERCENTILES_PORTFOLIOS") is not None:
+                self.cs_backtest_percentiles_portfolios = backtest["PERCENTILES_PORTFOLIOS"]
+            if backtest.get("PERCENTILES_WINSORIZATION") is not None:
+                self.cs_backtest_percentiles_winsorization = backtest["PERCENTILES_WINSORIZATION"]
+            if backtest.get("ROLLING_WINDOW_METRICS") is not None:
+                self.cs_backtest_rolling_window_metrics = backtest["ROLLING_WINDOW_METRICS"]
+            if backtest.get("NODE_FEATURES") is not None:
+                self.cs_backtest_node_features = backtest["NODE_FEATURES"]
