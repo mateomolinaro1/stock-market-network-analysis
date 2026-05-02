@@ -79,9 +79,9 @@ def main():
         pbar.update(1)
 
         # ── Step 4 — Analytics ────────────────────────────────
-        # pbar.set_description("Analytics")
-        # an.get_analytics(corr_cache=feature_pipeline._corr_cache)
-        # pbar.update(1)
+        pbar.set_description("Analytics")
+        an.get_analytics(corr_cache=feature_pipeline._corr_cache)
+        pbar.update(1)
 
         ######################################################
         ### BACKTEST #########################################
